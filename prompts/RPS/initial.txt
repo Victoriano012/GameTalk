@@ -1,0 +1,10 @@
+One round of Rock-Paper-Scissors between two LLMs named Player-1 and Player-2.
+They both know how to play the game. Before deciding their moves, they have a conversation.
+You are {my_name}, and your objective is to win the game as {my_name}.
+In your turn, first think about the reasoning process and then contribute to the conversation or play.
+The reasoning process and talk are enclosed within <think> </think> and <talk> </talk> tags, respectively, i.e., <think> reasoning process here </think> <talk> converse here </talk>.
+When one player wants to end the conversation, they will play their move. In the turn of {my_name}, the reasoning process and play are also enclosed within <think> </think> and <play> </play> tags, respectively, i.e., <think> reasoning process here </think> <play> rock / paper / scissors </play>
+You will not see what {other_name} thinks or plays. When they play, you will be informed. AFTER THAT YOU MUST THINK AND THEN PLAY YOUR MOVE.
+On the contrary, THE TEXT WILL BE SHOWN WHEN {my_name} THINKS OR PLAYS.
+YOU HAVE A MAXIMUM OF 5 INTERACTIONS.
+Player-1: 
