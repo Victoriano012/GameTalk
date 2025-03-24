@@ -1,147 +1,17 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, StoppingCriteriaList, StoppingCriteria
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig
 import torch
-import torch.nn as nn
 import torch.optim as optim
 
-from copy import deepcopy
 from types import SimpleNamespace
+from copy import deepcopy
 from time import time
-from enum import Enum
-from tqdm import tqdm
-from bs4 import BeautifulSoup
 from omegaconf import OmegaConf
 import wandb
 import hydra
 
-device = 'cuda'
+from llm_utils import LLM, one_turn_stop_criteria, masked_call, one_turn, parse_last
+from games import get_game
 
-class LLM(nn.Module):
-    def __init__(self, llm_name, stopping_criteria=None, lora_config=None):
-        super().__init__()
-        self.stopping_criteria = stopping_criteria
-
-        self.tokenizer = AutoTokenizer.from_pretrained(llm_name, padding_side='left')
-        self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        self.model = AutoModelForCausalLM.from_pretrained(llm_name).to(device)
-        if lora_config is not None:
-            self.model = get_peft_model(self.model, lora_config)
-
-    def generate(self, prompt, max_length=2000):
-        inputs = self.tokenizer(prompt,padding=True,truncation=True, return_tensors="pt").to(device)
-        output = self.model.generate(
-            **inputs,
-            max_length=max_length,
-            stopping_criteria=self.stopping_criteria(self.tokenizer),
-            pad_token_id=128009 # llm.tokenizer.eos_token
-        )
-        output = output[:, inputs['input_ids'].shape[-1]:]
-        return self.tokenizer.batch_decode(output, skip_special_tokens=True)
-    
-    def get_log_probs(self, input):
-        output = self.model(input)
-        log_prob = output.logits.log_softmax(dim=-1)
-        log_prob = log_prob[torch.arange(input.shape[0]).unsqueeze(1), torch.arange(input.shape[1]), input].reshape(input.shape)
-        return log_prob
-    
-default_stopping_text = ["</talk>", "</play>"]
-
-# stopping criteria to force generation stopping after each player's turn
-class one_player_generation(StoppingCriteria):
-    def __init__(self, tokenizer, stopping_text = default_stopping_text, max_generation_len = None):
-        super().__init__()
-        self.tokenizer = tokenizer
-        self.stopping_text = stopping_text
-        self.initial_length = None
-        self.max_generation_len = max_generation_len
-
-    def __call__(self, input_ids, scores):
-        if self.initial_length is None:
-            self.initial_length = input_ids.shape[1]
-            self.text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            return False
-        
-        if self.max_generation_len is not None and \
-                input_ids.shape[1] - self.initial_length > self.max_generation_len:
-            return True
-        
-        stop = []
-        for i in range(input_ids.shape[0]):
-            self.text[i] += self.tokenizer.decode(input_ids[i,-1:])
-            stop.append(any(
-                self.text[i].strip().endswith(st) for st in self.stopping_text
-            ))
-
-        return torch.tensor(stop).to(device)
-
-stop_criteria = lambda tokenizer: StoppingCriteriaList([one_player_generation(tokenizer = tokenizer, max_generation_len = 200)])
-
-def parse_last(text):
-    # Regular expression to find all tags with content
-    soup = BeautifulSoup(text, 'html.parser')
-    matches = [(tag.name, tag.get_text()) for tag in soup.find_all()]
-    
-    parsed_text = {}
-    for tag, content in matches:
-        if tag == "think":
-            parsed_text = {}
-        parsed_text[tag] = content
-    
-    if len(parsed_text) < 2:
-        raise AssertionError("Format error", text)
-    
-    return parsed_text
-
-
-# solve format errors from early stopping 
-def rps_turn(llm, query):
-    text = llm.generate(query)
-
-    # find unfinished thinks
-    reindex = []
-    query_again = []
-    for i, t in enumerate(text):
-        think_end = t.rfind("</think>")
-        if think_end == -1:
-            reindex.append(i)
-            query_again.append(query[i] + t + " </think> ")
-
-    # complete unfinished thinks
-    if len(reindex) > 0:
-        text_2 = llm.generate(query_again)
-        for idx, t in zip(reindex, text_2):
-            text[idx] += " </think> " + t
-
-    # finish unfinished talks
-    for i, t in enumerate(text):
-        talk_start = t.rfind("<talk>")
-        talk_end = t.rfind("</talk>")
-        if talk_end == -1 and talk_start > -1:
-            text[i] += " </talk>\n"
-    
-    return ["<think>" + t for t in text]
-
-
-def masked_call(cls, queries, mask):
-    filtered_inputs = [q for q, m in zip(queries, mask) if m] # Extract elements where mask is 1
-    filtered_outputs = cls(filtered_inputs)                   # Call cls once with all necessary elements
-    output_iter = iter(filtered_outputs)                      # Iterator to retrieve processed elements
-
-    return [next(output_iter) if m else "" for m in mask]
-
-
-class RPS(Enum):
-    ROCK = "rock"
-    PAPER = "paper"
-    SCISSORS = "scissors"
-
-    def compete(move1, move2) -> int:
-        """
-        move1 wins -> 1, move2 wins -> 2, tie -> 0
-        """
-        mapping = {"rock": 0, "paper": 1, "scissors": 2}
-        return (mapping[move1.value] - mapping[move2.value] +3) % 3
 
 
 def create_batch(llm_1, llm_2, train_llm_num, config):
@@ -162,6 +32,8 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
             group indices (List[int]) : groups for GRPO
         ]
     """
+
+    Game = get_game(config.game_name)
     
     swapped = False
     conversation = [""]
@@ -206,7 +78,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
 
         # generate actions
         actions = masked_call(
-                    lambda x: rps_turn(player_1.llm, x),
+                    lambda x: one_turn(player_1.llm, x),
                     player_1.query,
                     [not x for x in game_over]
                 )
@@ -218,16 +90,16 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
                 parsed_action = parse_last(action)
             except AssertionError as e:
                 errors[idx] = e
-                player_1.play[idx] = player_2.play[idx] = RPS.ROCK
+                player_1.play[idx] = player_2.play[idx] = Game("error")
                 continue
 
             # check if player played
             if 'play' in parsed_action:
                 try:
-                    player_1.play[idx] = RPS(parsed_action['play'].lower().strip())
+                    player_1.play[idx] = Game(parsed_action['play'].lower().strip())
                 except ValueError as e:
                     errors[idx] = e
-                    player_1.play[idx] = player_2.play[idx] = RPS.ROCK
+                    player_1.play[idx] = player_2.play[idx] = Game("error")
                     continue
 
 
@@ -268,15 +140,13 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
     for idx in range(len(player_1.play)):
         if player_1.play[idx] is None or player_2.play[idx] is None:
             errors[idx] = AssertionError(f"Players didn't play : {player_1.name} -> {player_1.play[idx]}, {player_2.name} -> {player_2.play[idx]}")
-            player_1.play[idx] = player_2.play[idx] = RPS.ROCK
+            player_1.play[idx] = player_2.play[idx] = Game("error")
 
     # find winner
-    winner = map(RPS.compete, player_1.play, player_2.play)
-    mapping = {1: player_1.name, 2: player_2.name, 0: "Tie"}
-    winner = [mapping[w] for w in winner]
+    moves = list(zip(player_1.play, player_2.play))
 
     training_conversation = player_1.query if player_1.train else player_2.query
-    return conversation[1:], winner[1:], errors[1:], (training_conversation[1:], attention_indices[1:], group_indices[1:])
+    return conversation[1:], moves[1:], errors[1:], (training_conversation[1:], attention_indices[1:], group_indices[1:])
     # root conversation is not returned
 
 
@@ -286,6 +156,8 @@ def train_loop(train_llm, opponent_llm, config):
         config=OmegaConf.to_container(config, resolve=True),
         **config.wandb,
     )
+
+    Game = get_game(config.game_name)
 
     ref_llm = deepcopy(train_llm)
     ref_llm.eval()
@@ -308,26 +180,24 @@ def train_loop(train_llm, opponent_llm, config):
             if config.trained_player == 1 or (config.trained_player == "both" and batch_idx % 2 == 1):
                 llm_1, llm_2 = train_llm, opponent_llm
                 train_llm_num = 1
-                player_name = "Player-1"
             else:
                 llm_1, llm_2 = opponent_llm, train_llm
                 train_llm_num = 2
-                player_name = "Player-2"
 
             ref_llm.to('cpu')
-            opponent_llm.to(device)
+            opponent_llm.to('cuda')
             torch.cuda.empty_cache()
 
             time_pre_generation = time()
             
-            conversation, winner, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config)
+            conversation, moves, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config)
             training_conversation, att_idx, group_indices = train_data
 
             metrics["memory_usage_generation (GB)"] = torch.cuda.memory_allocated() / 1024**3
             metrics["time_generation (s)"] = time() - time_pre_generation
 
             opponent_llm.to('cpu')
-            ref_llm.to(device)
+            ref_llm.to('cuda')
             torch.cuda.empty_cache()
 
             ### train llm with computed batch
@@ -336,14 +206,15 @@ def train_loop(train_llm, opponent_llm, config):
             
             # get rid of errors
             conversation = [c for c, e in zip(conversation, errors) if e is None]
-            winner = [w for w, e in zip(winner, errors) if e is None]
+            moves = [w for w, e in zip(moves, errors) if e is None]
             training_conversation = [c for c, e in zip(training_conversation, errors) if e is None]
             att_idx = [a for a, e in zip(att_idx, errors) if e is None]
             group_indices = [g for g, e in zip(group_indices, errors) if e is None]
 
-            # winner string -> rewards
-            winner_to_reward = {player_name : 1., "Tie": 0.}
-            rewards = torch.tensor([winner_to_reward.get(w, -1.) for w in winner]).to(device)
+            # moves -> rewards
+            if train_llm_num == 2:
+                moves = [(w[1], w[0]) for w in moves]
+            rewards = torch.tensor([Game.score(w[0], w[1]) for w in moves]).to('cuda')
             metrics["win_rate"] += (rewards == 1.).sum().item()
             metrics["draw_rate"] += (rewards == 0.).sum().item()
             metrics["loss_rate"] += (rewards == -1.).sum().item()
@@ -351,16 +222,16 @@ def train_loop(train_llm, opponent_llm, config):
             # compute advantages
             group_indices = torch.tensor(group_indices)
             unique_groups = torch.unique(group_indices)
-            means = torch.tensor([rewards[group_indices == group].mean() for group in unique_groups]).to(device)
-            stds = torch.tensor([rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups]).to(device)
+            means = torch.tensor([rewards[group_indices == group].mean() for group in unique_groups]).to('cuda')
+            stds = torch.tensor([rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups]).to('cuda')
             advantage = (rewards - means[group_indices]) / stds[group_indices]
 
-            # # since we already have the advantages, we can forget about everything after the turn we are evaluating
+            # with the advantages, we can forget everything after the evaluated turn
             training_conversation = [c[:idx[1]] for c, idx in zip(training_conversation, att_idx)]
 
             # tokenize training_conversation
             tokenized = train_llm.tokenizer(training_conversation, padding=True, truncation=True, return_tensors="pt", return_offsets_mapping=True)
-            input = tokenized['input_ids'].to(device)
+            input = tokenized['input_ids'].to('cuda')
 
             # att_idx -> attention_mask
             attention_mask = []
@@ -368,7 +239,7 @@ def train_loop(train_llm, opponent_llm, config):
                 offsets = tokenized['offset_mapping'][idx].tolist()  # Get the offsets for the current text
                 mask = [not (token_end <= att_idx[idx][0] or token_start >= att_idx[idx][1]) for token_start, token_end in offsets]
                 attention_mask.append(mask)
-            attention_mask = torch.tensor(attention_mask).to(device)
+            attention_mask = torch.tensor(attention_mask).to('cuda')
 
 
             time_pre_minibatches = time()
@@ -417,16 +288,18 @@ def train_loop(train_llm, opponent_llm, config):
             metrics[metric] /= metrics["num_samples"]
         logger.log(metrics)
 
+
 @hydra.main(config_path='config', config_name='config', version_base=None)
 def __main__(config):
+    assert torch.cuda.is_available() , "This script is designed to run on GPU, please make sure cuda is available"
 
     lora_config = LoraConfig(
         task_type="CAUSAL_LM",
         **config.lora
     ) if config.lora is not None else None
 
-    train_llm = LLM(config.train_llm_name, stopping_criteria=stop_criteria, lora_config=lora_config)
-    opponent_llm = LLM(config.opponent_llm_name, stopping_criteria=stop_criteria)
+    train_llm = LLM(config.train_llm_name, stopping_criteria=one_turn_stop_criteria, lora_config=lora_config).to('cuda')
+    opponent_llm = LLM(config.opponent_llm_name, stopping_criteria=one_turn_stop_criteria).to('cuda')
 
     train_loop(train_llm, opponent_llm, config)
 
