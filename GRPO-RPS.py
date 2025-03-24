@@ -297,7 +297,7 @@ def train_loop(train_llm, opponent_llm, config):
     for epoch in range(config.train.epochs):
         print(f"EPOCH {epoch}", flush=True)
         ref_llm.load_state_dict(train_llm.state_dict())
-        metrics = {"total_loss": 0, "kl": 0, "win_rate": 0, "draw_rate": 0, "loss_rate": 0, "num_samples": 0}
+        metrics = {metric : 0 for metric in config.tracked_metrics}
         # no metric is divided by num_samples until just before logging
 
         for batch_idx in range(config.train.batches_per_epoch):
@@ -314,14 +314,21 @@ def train_loop(train_llm, opponent_llm, config):
                 train_llm_num = 2
                 player_name = "Player-2"
 
-            for attempt in range(5):
-                try:
-                    conversation, winner, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config)
-                    break
-                except MemoryError:
-                    print(f"Batch creation, attempt {attempt} failed due to memory limits.", flush=True)
+            ref_llm.to('cpu')
+            opponent_llm.to(device)
+            torch.cuda.empty_cache()
+
+            time_pre_generation = time()
+            
+            conversation, winner, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config)
             training_conversation, att_idx, group_indices = train_data
 
+            metrics["memory_usage_generation (GB)"] = torch.cuda.memory_allocated() / 1024**3
+            metrics["time_generation (s)"] = time() - time_pre_generation
+
+            opponent_llm.to('cpu')
+            ref_llm.to(device)
+            torch.cuda.empty_cache()
 
             ### train llm with computed batch
 
@@ -364,9 +371,11 @@ def train_loop(train_llm, opponent_llm, config):
             attention_mask = torch.tensor(attention_mask).to(device)
 
 
+            time_pre_minibatches = time()
             mini_size = config.train.minibatch_size
             print("    Processing minibatches", flush=True)
             for i in range(0, len(training_conversation), mini_size):
+                time_this_minibatch = time()
                 optimizer.zero_grad()
 
                 input_batch = input[i:i+mini_size]
@@ -399,10 +408,13 @@ def train_loop(train_llm, opponent_llm, config):
                 metrics["kl"] += (kld * attention_mask_batch).sum().item()
                 metrics["total_loss"] += -masked_loss.sum().item()
                 metrics["num_samples"] += input_batch.shape[0]
+                metrics["memory_usage_minibatch (GB)"] = max(metrics["memory_usage_minibatch (GB)"], torch.cuda.memory_allocated() / 1024**3)
+                metrics["time_minibatch (s)"] = max(metrics["time_minibatch (s)"], time() - time_this_minibatch)
         
-        for metric in metrics:
-            if metric != "num_samples":
-                metrics[metric] /= metrics["num_samples"]
+        metrics["time_total_minibatches (s)"] = time() - time_pre_minibatches
+        
+        for metric in config.normalized_metrics:
+            metrics[metric] /= metrics["num_samples"]
         logger.log(metrics)
 
 @hydra.main(config_path='config', config_name='config', version_base=None)
