@@ -8,6 +8,8 @@ from time import time
 from omegaconf import OmegaConf
 import wandb
 import hydra
+import sys
+import os
 
 from llm_utils import LLM, one_turn_stop_criteria, masked_call, one_turn, parse_last
 from games import get_game
@@ -142,20 +144,24 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
             errors[idx] = AssertionError(f"Players didn't play : {player_1.name} -> {player_1.play[idx]}, {player_2.name} -> {player_2.play[idx]}")
             player_1.play[idx] = player_2.play[idx] = Game("error")
 
-    # find winner
+    # concat moves
     moves = list(zip(player_1.play, player_2.play))
 
     training_conversation = player_1.query if player_1.train else player_2.query
-    return conversation[1:], moves[1:], errors[1:], (training_conversation[1:], attention_indices[1:], group_indices[1:])
-    # root conversation is not returned
+    return conversation, moves, errors, (training_conversation, attention_indices, group_indices)
 
 
 def train_loop(train_llm, opponent_llm, config):
 
     logger = wandb.init(
         config=OmegaConf.to_container(config, resolve=True),
-        **config.wandb,
+        name = config.run_name,
+        project = config.wandb.project
     )
+
+    conversation_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.conversations}", "w")
+    metrics_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.metrics}", "w")
+    print(OmegaConf.to_container(config, resolve=True), file=metrics_file, flush=True)
 
     Game = get_game(config.game_name)
 
@@ -193,6 +199,8 @@ def train_loop(train_llm, opponent_llm, config):
             conversation, moves, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config)
             training_conversation, att_idx, group_indices = train_data
 
+            print(f"\n\nEPOCH {epoch} - BATCH {batch_idx} :\n", file=conversation_file)
+            print(conversation[0], file=conversation_file, flush=True)
             metrics["memory_usage_generation (GB)"] = torch.cuda.memory_allocated() / 1024**3
             metrics["time_generation (s)"] = time() - time_pre_generation
 
@@ -219,9 +227,18 @@ def train_loop(train_llm, opponent_llm, config):
             metrics["draw_rate"] += (rewards == 0.).sum().item()
             metrics["loss_rate"] += (rewards == -1.).sum().item()
 
-            # compute advantages
+            # compute groups for GRPO
             group_indices = torch.tensor(group_indices)
-            unique_groups = torch.unique(group_indices)
+            unique_groups, counts = torch.unique(group_indices, return_counts=True)
+
+            unique_groups = unique_groups[counts > 1] # avoid std error in some very niche cases & get rid of root conversation
+            group_mask = torch.isin(group_indices, unique_groups)
+            group_indices = group_indices[group_mask]
+            rewards = rewards[group_mask]
+            training_conversation = [training_conversation[i] for i in range(len(group_mask)) if group_mask[i]]
+            att_idx = [att_idx[i] for i in range(len(group_mask)) if group_mask[i]]
+
+            # compute advantages
             means = torch.tensor([rewards[group_indices == group].mean() for group in unique_groups]).to('cuda')
             stds = torch.tensor([rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups]).to('cuda')
             advantage = (rewards - means[group_indices]) / stds[group_indices]
@@ -287,11 +304,20 @@ def train_loop(train_llm, opponent_llm, config):
         for metric in config.normalized_metrics:
             metrics[metric] /= metrics["num_samples"]
         logger.log(metrics)
+        print(f"\nEPOCH {epoch}", file=metrics_file)
+        print(metrics, file=metrics_file, flush=True)
 
+    conversation_file.close()
+    metrics_file.close()
 
 @hydra.main(config_path='config', config_name='config', version_base=None)
 def __main__(config):
     assert torch.cuda.is_available() , "This script is designed to run on GPU, please make sure cuda is available"
+
+    os.makedirs(f"{config.logs.folder}{config.run_name}", exist_ok=True)
+    general_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.general}", "w")
+    sys.stdout = general_file
+    sys.stderr = general_file
 
     lora_config = LoraConfig(
         task_type="CAUSAL_LM",
@@ -301,6 +327,11 @@ def __main__(config):
     train_llm = LLM(config.train_llm_name, stopping_criteria=one_turn_stop_criteria, lora_config=lora_config).to('cuda')
     opponent_llm = LLM(config.opponent_llm_name, stopping_criteria=one_turn_stop_criteria).to('cuda')
 
+    print("\nStart training")
     train_loop(train_llm, opponent_llm, config)
+    print("\nTraining is done")
+
+    if config.lora is not None:
+        train_llm.model.save_pretrained(f"{config.logs.folder}{config.run_name}/{config.logs.model}") # save LoRA model
 
 __main__()

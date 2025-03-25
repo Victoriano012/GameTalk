@@ -19,7 +19,7 @@ class LLM(nn.Module):
             self.model = get_peft_model(self.model, lora_config)
         
 
-    def generate(self, prompt, max_length=2000):
+    def generate(self, prompt, max_length=10000):
         inputs = self.tokenizer(prompt,padding=True,truncation=True, return_tensors="pt").to('cuda')
         output = self.model.generate(
             **inputs,
