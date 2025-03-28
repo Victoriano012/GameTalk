@@ -5,10 +5,10 @@ player_1_name: "Player-1"
 player_2_name: "Player-2"
 train_llm_name: "meta-llama/Llama-3.2-3B-Instruct"
 opponent_llm_name: "meta-llama/Llama-3.2-3B-Instruct"
-trained_player: 2 # 1 or 2 or "both"
+trained_player: 2   # 1 or 2 or "both"
 
 train:
-  lr: 1e-5
+  lr: 1e-6
   epochs: 500
   save_every: 50
   batches_per_epoch: 1
@@ -19,6 +19,9 @@ train:
   kl_coef: 0.1
   ppo_eps: 0.2
   grpo_std_eps: 1e-8
+
+  replay_batches_per_epoch: 3
+  buffer_size_limit: 16
 
 lora:
   r: 32
@@ -46,14 +49,16 @@ wandb:
 ###### Not modifiable configuration ######
 
 tracked_metrics: [
-  "reward",
-  "opponent_reward",
-  "normalized_relative_advantage",
-  "total_loss",
-  "kl",
   "win_rate",
   "draw_rate",
   "loss_rate",
+  "reward",
+  "opponent_reward",
+  "normalized_relative_advantage",
+  "kl",
+  "total_loss",
+  "replay_kl",
+  "replay_total_loss",
 
   "num_samples",
   "num_interactions", # just root conversation
@@ -66,7 +71,9 @@ tracked_metrics: [
   "memory_usage_minibatch (GB)",
   "time_generation (s)",
   "time_minibatch (s)",
-  "time_total_minibatches (s)"
+  "time_total_minibatches (s)",
+  "replay_time_minibatch (s)",
+  "time_total_replay (s)"
 ]
 
 # metrics to be divided by number of samples

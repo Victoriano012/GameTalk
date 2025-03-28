@@ -3,7 +3,7 @@ import torch.optim as optim
 import torch
 
 from omegaconf import OmegaConf
-from random import shuffle
+import random
 from types import SimpleNamespace
 from copy import deepcopy
 from time import time
@@ -161,6 +161,49 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     return conversation, moves, errors, (training_conversation, attention_indices, group_indices)
 
 
+def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
+    input, attention_mask, advantage = batch
+
+    mini_size = config.train.minibatch_size
+    mini_batches = [(input[i:i+mini_size], attention_mask[i:i+mini_size], advantage[i:i+mini_size]) for i in range(0, len(input), mini_size)]
+    # random.shuffle(mini_batches)
+
+    train_llm.train()
+    
+    print("    Processing minibatches", metrics_prefix, flush=True)
+    for input_batch, attention_mask_batch, advantage_batch in mini_batches[::-1]:
+
+        time_this_minibatch = time()
+        optimizer.zero_grad()
+
+        # compute log_probs and ref_log_probs
+        log_probs = train_llm.get_log_probs(input_batch)
+        ref_log_probs = ref_llm.get_log_probs(input_batch)
+
+        # compute loss
+        ratio = torch.exp(log_probs - ref_log_probs)
+        clipped_ratio = torch.clamp(ratio, 1 - config.train.ppo_eps, 1 + config.train.ppo_eps)
+
+        advantage_batch = advantage_batch.unsqueeze(1)
+        loss = torch.min(ratio * advantage_batch, clipped_ratio * advantage_batch)
+
+        kl = ref_log_probs - log_probs
+        ratio = torch.exp(kl)
+        kld = (ratio - kl - 1)
+        
+        masked_loss = (loss - config.train.kl_coef * kld) * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True)
+
+        loss = - masked_loss.sum() / input_batch.shape[0]
+
+        # backpropagate
+        loss.backward()
+        optimizer.step()
+
+        metrics[metrics_prefix + "kl"] += (kld * attention_mask_batch).sum().item()
+        metrics[metrics_prefix + "total_loss"] += -masked_loss.sum().item()
+        metrics[metrics_prefix + "time_minibatch (s)"] = max(metrics["time_minibatch (s)"], time() - time_this_minibatch)
+
+
 def train_loop(train_llm, opponent_llm, config):
 
     logger = wandb.init(
@@ -174,6 +217,7 @@ def train_loop(train_llm, opponent_llm, config):
     print(OmegaConf.to_container(config, resolve=True), file=metrics_file, flush=True)
 
     Game = get_game(config.game_name)
+    buffer = []
 
     ref_llm = deepcopy(train_llm)
     ref_llm.eval()
@@ -223,9 +267,7 @@ def train_loop(train_llm, opponent_llm, config):
             opponent_llm.to('cpu')
             ref_llm.to('cuda')
 
-            ### train llm with computed batch
-
-            train_llm.train()
+            ### prepare batch for training
             
             # get rid of errors
             metrics["num_error_conversations"] = len(errors) - errors.count(None)
@@ -242,6 +284,7 @@ def train_loop(train_llm, opponent_llm, config):
             unique_groups = unique_groups[counts > 1]
             group_mask = torch.isin(group_indices, unique_groups)
             group_indices = group_indices[group_mask]
+            conversation = [conversation[i] for i in range(len(group_mask)) if group_mask[i]]
             moves = [moves[i] for i in range(len(group_mask)) if group_mask[i]]
             training_conversation = [training_conversation[i] for i in range(len(group_mask)) if group_mask[i]]
             att_idx = [att_idx[i] for i in range(len(group_mask)) if group_mask[i]]
@@ -270,7 +313,7 @@ def train_loop(train_llm, opponent_llm, config):
             training_conversation = [c[:idx[1]] for c, idx in zip(training_conversation, att_idx)]
 
                 # this happens when one player doesn't ever play
-                # not sure why this happens, but I don't want it to break the training
+                # never happens, but just in case, I don't want it to break the training
             if len(training_conversation) == 0:
                 print("Empty training conversation")
                 print("The errors of this batch were:")
@@ -288,54 +331,26 @@ def train_loop(train_llm, opponent_llm, config):
                 mask = [not (token_end <= att_idx[idx][0] or token_start >= att_idx[idx][1]) for token_start, token_end in offsets]
                 attention_mask.append(mask)
             attention_mask = torch.tensor(attention_mask).to('cuda')
+            
+            curr_batch = (input, attention_mask, advantage)
+            buffer.append(curr_batch)
 
-
+            # train current batch
             time_pre_minibatches = time()
-            mini_size = config.train.minibatch_size
-            mini_batches = [(input[i:i+mini_size], attention_mask[i:i+mini_size], advantage[i:i+mini_size]) for i in range(0, len(training_conversation), mini_size)]
+            batch_step(train_llm, ref_llm, optimizer, curr_batch, config, metrics, "")
 
-            print("    Processing minibatches", flush=True)
-            # for i in range(0, len(training_conversation), mini_size):
-                # input_batch = input[i:i+mini_size]
-                # attention_mask_batch = attention_mask[i:i+mini_size]
-                # advantage_batch = advantage[i:i+mini_size]
-            # shuffle(mini_batches)
-            for input_batch, attention_mask_batch, advantage_batch in mini_batches[::-1]:
-
-                time_this_minibatch = time()
-                optimizer.zero_grad()
-
-                # compute log_probs and ref_log_probs
-                log_probs = train_llm.get_log_probs(input_batch)
-                ref_log_probs = ref_llm.get_log_probs(input_batch)
-
-                # compute loss
-                ratio = torch.exp(log_probs - ref_log_probs)
-                clipped_ratio = torch.clamp(ratio, 1 - config.train.ppo_eps, 1 + config.train.ppo_eps)
-
-                advantage_batch = advantage_batch.unsqueeze(1)
-                loss = torch.min(ratio * advantage_batch, clipped_ratio * advantage_batch)
-
-                kl = ref_log_probs - log_probs
-                ratio = torch.exp(kl)
-                kld = (ratio - kl - 1)
-                
-                masked_loss = (loss - config.train.kl_coef * kld) * attention_mask_batch
-
-                loss = - masked_loss.sum() / input_batch.shape[0]
-
-                # backpropagate
-                loss.backward()
-                optimizer.step()
-
-                metrics["kl"] += (kld * attention_mask_batch).sum().item()
-                metrics["total_loss"] += -masked_loss.sum().item()
-                metrics["num_samples"] += input_batch.shape[0]
-                metrics["time_minibatch (s)"] = max(metrics["time_minibatch (s)"], time() - time_this_minibatch)
-
+            metrics["num_samples"] += len(input)
             metrics["memory_usage_minibatch (GB)"] = torch.cuda.max_memory_allocated() / 1024**3
             metrics["time_total_minibatches (s)"] = time() - time_pre_minibatches
             metrics["normalized_relative_advantage"] = (metrics["reward"] - metrics["opponent_reward"])/(metrics["reward"] + metrics["opponent_reward"] + 1e-8)
+
+        buffer = buffer[-config.train.buffer_size_limit:]
+
+        time_pre_replay = time()
+        for _ in range(config.train.replay_batches_per_epoch):
+            replay_batch = random.choice(buffer)
+            batch_step(train_llm, ref_llm, optimizer, replay_batch, config, metrics, "replay_")
+        metrics["time_total_replay (s)"] = time() - time_pre_replay
 
         for metric in config.normalized_metrics:
             metrics[metric] /= max(metrics["num_samples"], 1)
