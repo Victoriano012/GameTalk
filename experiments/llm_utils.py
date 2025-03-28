@@ -19,11 +19,11 @@ class LLM(nn.Module):
             self.model = get_peft_model(self.model, lora_config)
         
 
-    def generate(self, prompt, max_length=10000):
+    def generate(self, prompt, max_new_tokens=2000):
         inputs = self.tokenizer(prompt,padding=True,truncation=True, return_tensors="pt").to('cuda')
         output = self.model.generate(
             **inputs,
-            max_length=max_length,
+            max_new_tokens=max_new_tokens,
             stopping_criteria=self.stopping_criteria(self.tokenizer),
             pad_token_id=128009 # llm.tokenizer.eos_token
         )
@@ -41,22 +41,16 @@ default_stopping_text = ["</talk>", "</play>"]
 
 # stopping criteria to force generation stopping after each player's turn
 class one_player_generation(StoppingCriteria):
-    def __init__(self, tokenizer, stopping_text = default_stopping_text, max_generation_len = None):
+    def __init__(self, tokenizer, stopping_text = default_stopping_text):
         super().__init__()
         self.tokenizer = tokenizer
         self.stopping_text = stopping_text
-        self.initial_length = None
-        self.max_generation_len = max_generation_len
+        self.text = None
 
     def __call__(self, input_ids, scores):
-        if self.initial_length is None:
-            self.initial_length = input_ids.shape[1]
+        if self.text is None:
             self.text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
             return False
-        
-        if self.max_generation_len is not None and \
-                input_ids.shape[1] - self.initial_length > self.max_generation_len:
-            return True
         
         stop = []
         for i in range(input_ids.shape[0]):
@@ -67,7 +61,7 @@ class one_player_generation(StoppingCriteria):
 
         return torch.tensor(stop).to('cuda')
 
-one_turn_stop_criteria = lambda tokenizer: StoppingCriteriaList([one_player_generation(tokenizer = tokenizer, max_generation_len = 200)])
+one_turn_stop_criteria = lambda tokenizer: StoppingCriteriaList([one_player_generation(tokenizer = tokenizer)])
 
 
 
@@ -89,8 +83,8 @@ def parse_last(text):
 
 
 # generate response + solve format errors from early stopping 
-def one_turn(llm, query):
-    text = llm.generate(query)
+def one_turn(llm, query, max_new_tokens=2000):
+    text = llm.generate(query, max_new_tokens=max_new_tokens)
 
     # find unfinished thinks
     reindex = []
@@ -103,7 +97,7 @@ def one_turn(llm, query):
 
     # complete unfinished thinks
     if len(reindex) > 0:
-        text_2 = llm.generate(query_again)
+        text_2 = llm.generate(query_again, max_new_tokens=max_new_tokens)
         for idx, t in zip(reindex, text_2):
             text[idx] += " </think> " + t
 

@@ -2,7 +2,7 @@
 This file contains the implementation of games
 Each instance of a game is just one move, initialized as Game(llm_move)
     where llm_move is a lowercase string with no space at beginning or end
-    if errors happened, llm_move = "error"
+    if llm_move may an invalid move, in that case self.is_error() = True
 Each game must have defined a score method that takes two instances and returns the score (float/double) of the first player
 """
 
@@ -22,11 +22,22 @@ class RPS(Enum):
     SCISSORS = "scissors"
     ERROR = "error"
 
+    def _missing_(value):
+        return RPS.ERROR
+
+    def is_error(self):
+        return self == RPS.ERROR
+    
+    # move1 wins -> 2., move2 wins -> 0., tie -> 1.
     def score(move1, move2) -> int:
-        """
-        move1 wins -> 1, move2 wins -> -1, tie -> 0
-        """
-        mapping = {"rock": 0, "paper": 1, "scissors": 2}
-        ans = (mapping[move1.value] - mapping[move2.value] + 3) % 3
-        ans = -1 if ans == 2 else ans
-        return float(ans)
+
+        # error cases
+        if move1 == RPS.ERROR:
+            return 0.
+        if move2 == RPS.ERROR:
+            return 2.
+        
+        mapping = {RPS.ROCK: 0, RPS.PAPER: 1, RPS.SCISSORS: 2}
+        score = (mapping[move1] - mapping[move2] + 3) % 3
+        score = -1 if score == 2 else score
+        return float(score+1)

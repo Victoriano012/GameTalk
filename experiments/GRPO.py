@@ -1,11 +1,12 @@
 from peft import LoraConfig
-import torch
 import torch.optim as optim
+import torch
 
+from omegaconf import OmegaConf
+from random import shuffle
 from types import SimpleNamespace
 from copy import deepcopy
 from time import time
-from omegaconf import OmegaConf
 import wandb
 import hydra
 import sys
@@ -16,7 +17,7 @@ from games import get_game
 
 
 
-def create_batch(llm_1, llm_2, train_llm_num, config):
+def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     """
     Creates a batch of episodes where two competing LLMs interact.
     Args:
@@ -54,12 +55,13 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
     player_1.play = [None]
     player_2.play = [None]
 
+    must_play = [False]
     errors = [None]
     group_indices = [-1]
     attention_indices = [(0,0)]
 
     print("    Creating batch", flush=True)
-    for t in range(2*config.train.max_interactions):
+    for interaction_idx in range(2*config.train.max_interactions):
 
         # check if both players played in all games
         game_over = [x and y for x,y in zip(player_1.play, player_2.play)]
@@ -73,6 +75,8 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
             player_2.query += [player_2.query[0]]*config.train.group_size
             player_1.play += [player_1.play[0]]*config.train.group_size
             player_2.play += [player_2.play[0]]*config.train.group_size
+            
+            must_play += [must_play[0]]*config.train.group_size
             errors += [None]*config.train.group_size
             group_indices += [group_indices[-1] + 1]*config.train.group_size
             attention_indices += [len(player_1.query[0])]*config.train.group_size # end index added later
@@ -80,7 +84,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
 
         # generate actions
         actions = masked_call(
-                    lambda x: one_turn(player_1.llm, x),
+                    lambda x: one_turn(player_1.llm, x, max_new_tokens=config.train.max_new_tokens),
                     player_1.query,
                     [not x for x in game_over]
                 )
@@ -97,13 +101,11 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
 
             # check if player played
             if 'play' in parsed_action:
-                try:
-                    player_1.play[idx] = Game(parsed_action['play'].lower().strip())
-                except ValueError as e:
-                    errors[idx] = e
-                    player_1.play[idx] = player_2.play[idx] = Game("error")
-                    continue
-
+                player_1.play[idx] = Game(parsed_action['play'].lower().strip())
+                if idx == 0 and player_2.play[idx]:
+                    metrics["num_interactions"] = interaction_idx+1
+            elif must_play[idx]:
+                player_1.play[idx] = Game("error")
 
             ### add last action to queries
             # player_1 query
@@ -123,7 +125,9 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
             if 'play' in parsed_action:
                 with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
                     player_2.query[idx] += file.read().format(other_name = player_1.name)
+                must_play[idx] = True
             player_2.query[idx] += player_2.name + ": <think>" 
+
             # conversation
             conversation[idx] += player_1.name + ": <think>" + parsed_action['think'] + "</think>\n"
             if 'talk' in parsed_action:
@@ -140,14 +144,20 @@ def create_batch(llm_1, llm_2, train_llm_num, config):
 
     # error if any player didn't play
     for idx in range(len(player_1.play)):
-        if player_1.play[idx] is None or player_2.play[idx] is None:
-            errors[idx] = AssertionError(f"Players didn't play : {player_1.name} -> {player_1.play[idx]}, {player_2.name} -> {player_2.play[idx]}")
-            player_1.play[idx] = player_2.play[idx] = Game("error")
+        if player_1.play[idx] is None:
+            player_1.play[idx] = Game("error")
+        if player_2.play[idx] is None:
+            player_2.play[idx] = Game("error")
+        # if player_1.play[idx] is None or player_2.play[idx] is None:
+        #     errors[idx] = AssertionError(f"Players didn't play : {player_1.name} -> {player_1.play[idx]}, {player_2.name} -> {player_2.play[idx]}")
+        #     player_1.play[idx] = player_2.play[idx] = Game("error")
 
     # concat moves
     moves = list(zip(player_1.play, player_2.play))
 
     training_conversation = player_1.query if player_1.train else player_2.query
+    metrics["conversation_length (tokens)"] = len((player_1 if player_1.train else player_2).llm.tokenizer(training_conversation[0])['input_ids'])
+    
     return conversation, moves, errors, (training_conversation, attention_indices, group_indices)
 
 
@@ -195,56 +205,77 @@ def train_loop(train_llm, opponent_llm, config):
             torch.cuda.empty_cache()
 
             time_pre_generation = time()
-            
-            conversation, moves, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config)
+            torch.cuda.reset_peak_memory_stats()
+
+            conversation, moves, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config, metrics)
             training_conversation, att_idx, group_indices = train_data
+
+            metrics["time_generation (s)"] = time() - time_pre_generation
+            metrics["memory_usage_generation (GB)"] = torch.cuda.max_memory_allocated() / 1024**3
+            # metrics["memory_usage_generation (GB)"] = torch.cuda.memory_allocated() / 1024**3
+            
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
 
             print(f"\n\nEPOCH {epoch} - BATCH {batch_idx} :\n", file=conversation_file)
             print(conversation[0], file=conversation_file, flush=True)
-            metrics["memory_usage_generation (GB)"] = torch.cuda.memory_allocated() / 1024**3
-            metrics["time_generation (s)"] = time() - time_pre_generation
 
             opponent_llm.to('cpu')
             ref_llm.to('cuda')
-            torch.cuda.empty_cache()
 
             ### train llm with computed batch
 
             train_llm.train()
             
             # get rid of errors
+            metrics["num_error_conversations"] = len(errors) - errors.count(None)
             conversation = [c for c, e in zip(conversation, errors) if e is None]
             moves = [w for w, e in zip(moves, errors) if e is None]
             training_conversation = [c for c, e in zip(training_conversation, errors) if e is None]
             att_idx = [a for a, e in zip(att_idx, errors) if e is None]
             group_indices = [g for g, e in zip(group_indices, errors) if e is None]
+            
+            # compute groups for GRPO
+            group_indices = torch.tensor(group_indices)
+            unique_groups, counts = torch.unique(group_indices, return_counts=True)
+            # get rid of root conversation & avoid std error in some niche cases
+            unique_groups = unique_groups[counts > 1]
+            group_mask = torch.isin(group_indices, unique_groups)
+            group_indices = group_indices[group_mask]
+            moves = [moves[i] for i in range(len(group_mask)) if group_mask[i]]
+            training_conversation = [training_conversation[i] for i in range(len(group_mask)) if group_mask[i]]
+            att_idx = [att_idx[i] for i in range(len(group_mask)) if group_mask[i]]
 
             # moves -> rewards
             if train_llm_num == 2:
                 moves = [(w[1], w[0]) for w in moves]
             rewards = torch.tensor([Game.score(w[0], w[1]) for w in moves]).to('cuda')
-            metrics["win_rate"] += (rewards == 1.).sum().item()
-            metrics["draw_rate"] += (rewards == 0.).sum().item()
-            metrics["loss_rate"] += (rewards == -1.).sum().item()
-
-            # compute groups for GRPO
-            group_indices = torch.tensor(group_indices)
-            unique_groups, counts = torch.unique(group_indices, return_counts=True)
-
-            unique_groups = unique_groups[counts > 1] # avoid std error in some very niche cases & get rid of root conversation
-            group_mask = torch.isin(group_indices, unique_groups)
-            group_indices = group_indices[group_mask]
-            rewards = rewards[group_mask]
-            training_conversation = [training_conversation[i] for i in range(len(group_mask)) if group_mask[i]]
-            att_idx = [att_idx[i] for i in range(len(group_mask)) if group_mask[i]]
+            opponent_rewards = torch.tensor([Game.score(w[1], w[0]) for w in moves]).to('cuda')
+            metrics["win_rate"] += (rewards == 2.).sum().item()
+            metrics["draw_rate"] += (rewards == 1.).sum().item()
+            metrics["loss_rate"] += (rewards == 0.).sum().item()
+            metrics["reward"] += rewards.sum().item()
+            metrics["opponent_reward"] += opponent_rewards.sum().item()
+            metrics["lost_by_error"] = sum(1 for w in moves if w[0].is_error())
+            metrics["won_by_error"] = sum(1 for w in moves if w[1].is_error() and not w[0].is_error())
 
             # compute advantages
-            means = torch.tensor([rewards[group_indices == group].mean() for group in unique_groups]).to('cuda')
-            stds = torch.tensor([rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups]).to('cuda')
-            advantage = (rewards - means[group_indices]) / stds[group_indices]
+            means = {group.item() : rewards[group_indices == group].mean() for group in unique_groups}
+            stds = {group.item() : rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups}
+            group_indices = group_indices.tolist()
+            advantage = [(rewards[i] - means[group_indices[i]]) / stds[group_indices[i]] for i in range(len(rewards))]
+            advantage = torch.tensor(advantage).to('cuda')
 
             # with the advantages, we can forget everything after the evaluated turn
             training_conversation = [c[:idx[1]] for c, idx in zip(training_conversation, att_idx)]
+
+                # this happens when one player doesn't ever play
+                # not sure why this happens, but I don't want it to break the training
+            if len(training_conversation) == 0:
+                print("Empty training conversation")
+                print("The errors of this batch were:")
+                print(errors, flush=True)
+                continue
 
             # tokenize training_conversation
             tokenized = train_llm.tokenizer(training_conversation, padding=True, truncation=True, return_tensors="pt", return_offsets_mapping=True)
@@ -261,14 +292,18 @@ def train_loop(train_llm, opponent_llm, config):
 
             time_pre_minibatches = time()
             mini_size = config.train.minibatch_size
+            mini_batches = [(input[i:i+mini_size], attention_mask[i:i+mini_size], advantage[i:i+mini_size]) for i in range(0, len(training_conversation), mini_size)]
+
             print("    Processing minibatches", flush=True)
-            for i in range(0, len(training_conversation), mini_size):
+            # for i in range(0, len(training_conversation), mini_size):
+                # input_batch = input[i:i+mini_size]
+                # attention_mask_batch = attention_mask[i:i+mini_size]
+                # advantage_batch = advantage[i:i+mini_size]
+            # shuffle(mini_batches)
+            for input_batch, attention_mask_batch, advantage_batch in mini_batches[::-1]:
+
                 time_this_minibatch = time()
                 optimizer.zero_grad()
-
-                input_batch = input[i:i+mini_size]
-                attention_mask_batch = attention_mask[i:i+mini_size]
-                advantage_batch = advantage[i:i+mini_size]
 
                 # compute log_probs and ref_log_probs
                 log_probs = train_llm.get_log_probs(input_batch)
@@ -296,16 +331,21 @@ def train_loop(train_llm, opponent_llm, config):
                 metrics["kl"] += (kld * attention_mask_batch).sum().item()
                 metrics["total_loss"] += -masked_loss.sum().item()
                 metrics["num_samples"] += input_batch.shape[0]
-                metrics["memory_usage_minibatch (GB)"] = max(metrics["memory_usage_minibatch (GB)"], torch.cuda.memory_allocated() / 1024**3)
                 metrics["time_minibatch (s)"] = max(metrics["time_minibatch (s)"], time() - time_this_minibatch)
-        
-        metrics["time_total_minibatches (s)"] = time() - time_pre_minibatches
-        
+
+            metrics["memory_usage_minibatch (GB)"] = torch.cuda.max_memory_allocated() / 1024**3
+            metrics["time_total_minibatches (s)"] = time() - time_pre_minibatches
+            metrics["normalized_relative_advantage"] = (metrics["reward"] - metrics["opponent_reward"])/(metrics["reward"] + metrics["opponent_reward"] + 1e-8)
+
         for metric in config.normalized_metrics:
-            metrics[metric] /= metrics["num_samples"]
+            metrics[metric] /= max(metrics["num_samples"], 1)
         logger.log(metrics)
+
         print(f"\nEPOCH {epoch}", file=metrics_file)
         print(metrics, file=metrics_file, flush=True)
+
+        if epoch % config.train.save_every == 0 and config.lora is not None:
+            train_llm.model.save_pretrained(f"{config.logs.folder}{config.run_name}/{config.logs.model}") # save LoRA model
 
     conversation_file.close()
     metrics_file.close()

@@ -8,19 +8,21 @@ opponent_llm_name: "meta-llama/Llama-3.2-3B-Instruct"
 trained_player: 2 # 1 or 2 or "both"
 
 train:
-  lr: 1e-4
+  lr: 1e-5
   epochs: 500
+  save_every: 50
   batches_per_epoch: 1
-  group_size: 8
+  group_size: 16
   minibatch_size: 1
   max_interactions: 5
+  max_new_tokens: 200
   kl_coef: 0.1
   ppo_eps: 0.2
   grpo_std_eps: 1e-8
 
 lora:
-  r: 8
-  lora_alpha: 16
+  r: 32
+  lora_alpha: 64
   lora_dropout: 0.0
 
 prompts:
@@ -44,12 +46,22 @@ wandb:
 ###### Not modifiable configuration ######
 
 tracked_metrics: [
+  "reward",
+  "opponent_reward",
+  "normalized_relative_advantage",
   "total_loss",
   "kl",
   "win_rate",
   "draw_rate",
   "loss_rate",
+
   "num_samples",
+  "num_interactions", # just root conversation
+  "conversation_length (tokens)", # just root conversation
+  "num_error_conversations",
+  "lost_by_error",
+  "won_by_error",
+
   "memory_usage_generation (GB)",
   "memory_usage_minibatch (GB)",
   "time_generation (s)",
@@ -59,6 +71,8 @@ tracked_metrics: [
 
 # metrics to be divided by number of samples
 normalized_metrics: [
+  "reward",
+  "opponent_reward",
   "total_loss",
   "kl",
   "win_rate",
