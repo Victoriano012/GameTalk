@@ -11,6 +11,7 @@ import wandb
 import hydra
 import sys
 import os
+import re
 
 from game_utils import masked_call, one_turn, parse_last, estimate_strategy, kl_div
 from llm_utils import LLM, one_turn_stop_criteria
@@ -172,6 +173,8 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     """
 
     metrics[metrics_prefix+"internal_state_loss"] = 0.0
+    metrics[metrics_prefix+"word_based_loss"] = 0.0
+    word_based_count = 0
     internal_state_count = 0
 
     Game = get_game(config.game_name)
@@ -280,10 +283,15 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
             if 'play' in parsed_action:
                 conversation[idx] += "<play>" + parsed_action['play'] + "</play> \n"
 
+            if player_1.eval and 'talk' in parsed_action:
+                metrics[metrics_prefix+"word_based_loss"] += sum(len(re.findall(r'\b' + re.escape(word) + r'\b', parsed_action['talk'])) for word in config.bad_words)
+                word_based_count += 1
+
         # swap players for next round
         swapped = not swapped
         player_1, player_2 = player_2, player_1
 
+    metrics[metrics_prefix+"word_based_loss"] /= word_based_count
     metrics[metrics_prefix+"internal_state_loss"] /= internal_state_count
 
 

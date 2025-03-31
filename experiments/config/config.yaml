@@ -68,7 +68,7 @@ tracked_metrics: [
   "total_loss",
   "replay_kl",
   "replay_total_loss",
-  # "internal_state_loss", # may have prefix, so it has to be commented out
+  "internal_state_loss",
 
   "num_samples",
   "num_interactions", # just root conversation
@@ -95,4 +95,8 @@ normalized_metrics: [
   "win_rate",
   "draw_rate",
   "loss_rate"
+]
+
+bad_words: [
+  "kill"
 ]
