@@ -12,7 +12,8 @@ import hydra
 import sys
 import os
 
-from llm_utils import LLM, one_turn_stop_criteria, masked_call, one_turn, parse_last
+from game_utils import masked_call, one_turn, parse_last, estimate_strategy, kl_div
+from llm_utils import LLM, one_turn_stop_criteria
 from games import get_game
 
 
@@ -41,19 +42,23 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     swapped = False
     conversation = [""]
 
-    player_1 = SimpleNamespace(llm=llm_1, name=config.player_1_name)
-    player_2 = SimpleNamespace(llm=llm_2, name=config.player_2_name)
-
     with open(config.prompts.folder + config.prompts.initial, "r") as file:
         initial_prompt = file.read()
-    player_1.query = [initial_prompt.format(my_name=player_1.name, other_name=player_2.name) + "<think>"]
-    player_2.query = [initial_prompt.format(my_name=player_2.name, other_name=player_1.name)]
-
-    player_1.train = train_llm_num == 1
-    player_2.train = train_llm_num == 2
-
-    player_1.play = [None]
-    player_2.play = [None]
+    
+    player_1 = SimpleNamespace(
+        llm = llm_1,
+        name = config.player_1_name,
+        query = [initial_prompt.format(my_name=player_1.name, other_name=player_2.name) + "<think>"],
+        eval = train_llm_num == 1,
+        play = [None]
+    )
+    player_2 = SimpleNamespace(
+        llm = llm_2,
+        name = config.player_2_name,
+        query = [initial_prompt.format(my_name=player_2.name, other_name=player_1.name)],
+        eval = train_llm_num == 2,
+        play = [None]
+    )
 
     must_play = [False]
     errors = [None]
@@ -159,6 +164,127 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     metrics["conversation_length (tokens)"] = len((player_1 if player_1.train else player_2).llm.tokenizer(training_conversation[0])['input_ids'])
     
     return conversation, moves, errors, (training_conversation, attention_indices, group_indices)
+
+def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
+    """
+    Evaluates two competing LLMs through the creation of a batch.
+    Returns nothing, evaluations are added to metrics
+    """
+
+    metrics[metrics_prefix+"internal_state_loss"] = 0.0
+    internal_state_count = 0
+
+    Game = get_game(config.game_name)
+    
+    swapped = False
+    conversation = ["" for _ in range(config.eval.num_episodes)]
+
+    with open(config.prompts.folder + config.prompts.initial, "r") as file:
+        initial_prompt = file.read()
+    
+    player_1 = SimpleNamespace(
+        llm = llm_1,
+        name = config.player_1_name,
+        query = [initial_prompt.format(my_name=player_1.name, other_name=player_2.name) + "<think>" for _ in range(config.eval.num_episodes)],
+        eval = eval_llm_num == 1,
+        play = [None for _ in range(config.eval.num_episodes)]
+    )
+    player_2 = SimpleNamespace(
+        llm = llm_2,
+        name = config.player_2_name,
+        query = [initial_prompt.format(my_name=player_2.name, other_name=player_1.name) for _ in range(config.eval.num_episodes)],
+        eval = eval_llm_num == 2,
+        play = [None for _ in range(config.eval.num_episodes)]
+    )
+
+    must_play = [False for _ in range(config.eval.num_episodes)]
+    errors = [None for _ in range(config.eval.num_episodes)]
+
+    print("    Creating batch", flush=True)
+    for _ in range(2*config.train.max_interactions):
+
+        # check if both players played in all games
+        game_over = [x and y for x,y in zip(player_1.play, player_2.play)]
+        if all(game_over):
+            break
+
+        # evaluate player_1 if needed
+        if player_1.eval:
+            ### internal state evaluation
+            player_1_estimation = masked_call(
+                lambda q : estimate_strategy(player_1.llm, q, Game, other_name=player_2.name),
+                player_1.query,
+                [not x for x in game_over],
+                unpack = False
+            )
+            player_2_strategy = masked_call(
+                lambda q : estimate_strategy(player_2.llm, q, Game, other_name=None),
+                player_2.query,
+                [not x for x in game_over],
+                unpack = False
+            )
+
+            curr_kl = 0.0
+            for x in range(len(player_1_estimation)):
+                curr_kl += kl_div(player_1_estimation[x], player_2_strategy[x])
+            curr_kl /= len(player_1_estimation)
+            metrics[metrics_prefix+"internal_state_loss"] += curr_kl
+            internal_state_count += 1
+
+        # generate actions
+        actions = masked_call(
+                    lambda x: one_turn(player_1.llm, x, max_new_tokens=config.train.max_new_tokens),
+                    player_1.query,
+                    [not x for x in game_over]
+                )
+        for idx, action in enumerate(actions):
+            if action == "":
+                continue
+
+            try:
+                parsed_action = parse_last(action)
+            except AssertionError as e:
+                errors[idx] = e
+                player_1.play[idx] = player_2.play[idx] = Game("error")
+                continue
+
+            # check if player played
+            if 'play' in parsed_action:
+                player_1.play[idx] = Game(parsed_action['play'].lower().strip())
+            elif must_play[idx]:
+                player_1.play[idx] = Game("error")
+
+            ### add last action to queries
+            # player_1 query
+            player_1.query[idx] += parsed_action['think'] + "</think>\n"
+            if 'talk' in parsed_action:
+                player_1.query[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
+            if 'play' in parsed_action:
+                player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
+            
+            player_1.query[idx] += player_2.name + ": " 
+            
+            # player_2 query
+            if 'talk' in parsed_action:
+                player_2.query[idx] += parsed_action['talk'].strip() + "\n"
+            if 'play' in parsed_action:
+                with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
+                    player_2.query[idx] += file.read().format(other_name = player_1.name)
+                must_play[idx] = True
+            player_2.query[idx] += player_2.name + ": <think>" 
+
+            # conversation
+            conversation[idx] += player_1.name + ": <think>" + parsed_action['think'] + "</think>\n"
+            if 'talk' in parsed_action:
+                conversation[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
+            if 'play' in parsed_action:
+                conversation[idx] += "<play>" + parsed_action['play'] + "</play> \n"
+
+        # swap players for next round
+        swapped = not swapped
+        player_1, player_2 = player_2, player_1
+
+    metrics[metrics_prefix+"internal_state_loss"] /= internal_state_count
 
 
 def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
@@ -358,6 +484,12 @@ def train_loop(train_llm, opponent_llm, config):
 
         print(f"\nEPOCH {epoch}", file=metrics_file)
         print(metrics, file=metrics_file, flush=True)
+
+        if epoch % config.eval.eval_every == 0:
+            if config.trained_player in [1, "both"]:
+                eval_batch(train_llm, opponent_llm, 1, config, metrics, "player1_" if config.trained_player == "both" else "")
+            if config.trained_player in [2, "both"]:
+                eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.trained_player == "both" else "")
 
         if epoch % config.train.save_every == 0 and config.lora is not None:
             train_llm.model.save_pretrained(f"{config.logs.folder}{config.run_name}/{config.logs.model}") # save LoRA model

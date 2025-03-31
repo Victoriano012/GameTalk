@@ -8,20 +8,29 @@ opponent_llm_name: "meta-llama/Llama-3.2-3B-Instruct"
 trained_player: 2   # 1 or 2 or "both"
 
 train:
-  lr: 1e-6
+  lr: 1e-5
   epochs: 500
-  save_every: 50
   batches_per_epoch: 1
-  group_size: 16
-  minibatch_size: 1
+  group_size: 32
+  minibatch_size: 4
+  
   max_interactions: 5
   max_new_tokens: 200
+
   kl_coef: 0.1
   ppo_eps: 0.2
   grpo_std_eps: 1e-8
 
+  save_every: 50
+
   replay_batches_per_epoch: 3
   buffer_size_limit: 16
+
+
+eval:
+  eval_every: 10
+  num_episodes: 16
+
 
 lora:
   r: 32
@@ -29,12 +38,12 @@ lora:
   lora_dropout: 0.0
 
 prompts:
-  folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/RPS/"
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/prompts/RPS/"
   initial: "initial.txt"
   other_moved: "other_moved.txt"
 
 logs:
-  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/"
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/"
   general: "general.txt"
   conversations: "conversations.txt"
   metrics: "metrics.txt"
@@ -59,6 +68,7 @@ tracked_metrics: [
   "total_loss",
   "replay_kl",
   "replay_total_loss",
+  # "internal_state_loss", # may have prefix, so it has to be commented out
 
   "num_samples",
   "num_interactions", # just root conversation

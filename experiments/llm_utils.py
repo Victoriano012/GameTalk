@@ -3,9 +3,6 @@ from peft import get_peft_model
 import torch.nn as nn
 import torch
 
-from bs4 import BeautifulSoup
-
-
 class LLM(nn.Module):
     def __init__(self, llm_name, stopping_criteria=None, lora_config=None):
         super().__init__()
@@ -62,59 +59,4 @@ class one_player_generation(StoppingCriteria):
         return torch.tensor(stop).to('cuda')
 
 one_turn_stop_criteria = lambda tokenizer: StoppingCriteriaList([one_player_generation(tokenizer = tokenizer)])
-
-
-
-def parse_last(text):
-    # Regular expression to find all tags with content
-    soup = BeautifulSoup(text, 'html.parser')
-    matches = [(tag.name, tag.get_text()) for tag in soup.find_all()]
-    
-    parsed_text = {}
-    for tag, content in matches:
-        if tag == "think":
-            parsed_text = {}
-        parsed_text[tag] = content
-    
-    if len(parsed_text) < 2:
-        raise AssertionError("Format error", text)
-    
-    return parsed_text
-
-
-# generate response + solve format errors from early stopping 
-def one_turn(llm, query, max_new_tokens=2000):
-    text = llm.generate(query, max_new_tokens=max_new_tokens)
-
-    # find unfinished thinks
-    reindex = []
-    query_again = []
-    for i, t in enumerate(text):
-        think_end = t.rfind("</think>")
-        if think_end == -1:
-            reindex.append(i)
-            query_again.append(query[i] + t + " </think> ")
-
-    # complete unfinished thinks
-    if len(reindex) > 0:
-        text_2 = llm.generate(query_again, max_new_tokens=max_new_tokens)
-        for idx, t in zip(reindex, text_2):
-            text[idx] += " </think> " + t
-
-    # finish unfinished talks
-    for i, t in enumerate(text):
-        talk_start = t.rfind("<talk>")
-        talk_end = t.rfind("</talk>")
-        if talk_end == -1 and talk_start > -1:
-            text[i] += " </talk>\n"
-    
-    return ["<think>" + t for t in text]
-
-
-def masked_call(cls, queries, mask):
-    filtered_inputs = [q for q, m in zip(queries, mask) if m] # Extract elements where mask is 1
-    filtered_outputs = cls(filtered_inputs)                   # Call cls once with all necessary elements
-    output_iter = iter(filtered_outputs)                      # Iterator to retrieve processed elements
-
-    return [next(output_iter) if m else "" for m in mask]
 

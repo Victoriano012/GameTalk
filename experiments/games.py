@@ -33,7 +33,7 @@ class RPS(Enum):
 
         # error cases
         if move1 == RPS.ERROR:
-            return 0.
+            return -1.
         if move2 == RPS.ERROR:
             return 2.
         
