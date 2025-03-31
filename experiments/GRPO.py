@@ -48,15 +48,15 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     player_1 = SimpleNamespace(
         llm = llm_1,
         name = config.player_1_name,
-        query = [initial_prompt.format(my_name=player_1.name, other_name=player_2.name) + "<think>"],
-        eval = train_llm_num == 1,
+        query = [initial_prompt.format(my_name=config.player_1_name, other_name=config.player_2_name) + "<think>"],
+        train = train_llm_num == 1,
         play = [None]
     )
     player_2 = SimpleNamespace(
         llm = llm_2,
         name = config.player_2_name,
-        query = [initial_prompt.format(my_name=player_2.name, other_name=player_1.name)],
-        eval = train_llm_num == 2,
+        query = [initial_prompt.format(my_name=config.player_2_name, other_name=config.player_1_name)],
+        train = train_llm_num == 2,
         play = [None]
     )
 
@@ -185,14 +185,14 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     player_1 = SimpleNamespace(
         llm = llm_1,
         name = config.player_1_name,
-        query = [initial_prompt.format(my_name=player_1.name, other_name=player_2.name) + "<think>" for _ in range(config.eval.num_episodes)],
+        query = [initial_prompt.format(my_name=config.player_1_name, other_name=config.player_2_name) + "<think>" for _ in range(config.eval.num_episodes)],
         eval = eval_llm_num == 1,
         play = [None for _ in range(config.eval.num_episodes)]
     )
     player_2 = SimpleNamespace(
         llm = llm_2,
         name = config.player_2_name,
-        query = [initial_prompt.format(my_name=player_2.name, other_name=player_1.name) for _ in range(config.eval.num_episodes)],
+        query = [initial_prompt.format(my_name=config.player_2_name, other_name=config.player_1_name) for _ in range(config.eval.num_episodes)],
         eval = eval_llm_num == 2,
         play = [None for _ in range(config.eval.num_episodes)]
     )
@@ -200,7 +200,7 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     must_play = [False for _ in range(config.eval.num_episodes)]
     errors = [None for _ in range(config.eval.num_episodes)]
 
-    print("    Creating batch", flush=True)
+    print("    Evaluating", flush=True)
     for _ in range(2*config.train.max_interactions):
 
         # check if both players played in all games
@@ -472,24 +472,31 @@ def train_loop(train_llm, opponent_llm, config):
 
         buffer = buffer[-config.train.buffer_size_limit:]
 
+        # replay
         time_pre_replay = time()
         for _ in range(config.train.replay_batches_per_epoch):
             replay_batch = random.choice(buffer)
             batch_step(train_llm, ref_llm, optimizer, replay_batch, config, metrics, "replay_")
         metrics["time_total_replay (s)"] = time() - time_pre_replay
+        
+        # eval if needed
+        if config.eval.eval_every is not None and epoch % config.eval.eval_every == 0:
+            ref_llm.to('cpu')
+            opponent_llm.to('cuda')
+            if config.trained_player in [1, "both"]:
+                eval_batch(train_llm, opponent_llm, 1, config, metrics, "player1_" if config.trained_player == "both" else "")
+            if config.trained_player in [2, "both"]:
+                eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.trained_player == "both" else "")
+            opponent_llm.to('cpu')
+            ref_llm.to('cuda')
 
+        # log metrics
         for metric in config.normalized_metrics:
             metrics[metric] /= max(metrics["num_samples"], 1)
         logger.log(metrics)
 
         print(f"\nEPOCH {epoch}", file=metrics_file)
         print(metrics, file=metrics_file, flush=True)
-
-        if epoch % config.eval.eval_every == 0:
-            if config.trained_player in [1, "both"]:
-                eval_batch(train_llm, opponent_llm, 1, config, metrics, "player1_" if config.trained_player == "both" else "")
-            if config.trained_player in [2, "both"]:
-                eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.trained_player == "both" else "")
 
         if epoch % config.train.save_every == 0 and config.lora is not None:
             train_llm.model.save_pretrained(f"{config.logs.folder}{config.run_name}/{config.logs.model}") # save LoRA model

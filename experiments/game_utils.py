@@ -1,5 +1,5 @@
 from bs4 import BeautifulSoup
-
+import torch
 
 def parse_last(text):
     # Regular expression to find all tags with content
@@ -81,17 +81,25 @@ def estimate_strategy(llm, queries, Game, other_name=None):
     else:
         for idx in range(len(queries)):
             queries[idx] += f" I think {other_name} will play " + sample_move
-
-    tokenized = llm.tokenizer(queries, padding=True, truncation=True, return_tensors='pt')
-
-    assert (sample_token == tokenized['input_ids'][:,-1]).all()
-
+            
     token_to_instance = get_end_tokens(llm.tokenizer, Game)
     tokens = list(token_to_instance)
 
-    output = llm.model(**tokenized)
-    logits = output.logits[:,-1,tokens]
-    probs = logits.softmax(dim=-1)
+    tokenized = llm.tokenizer(queries, padding=True, truncation=True, return_tensors='pt').to('cuda')
+
+    assert (sample_token == tokenized['input_ids'][:,-1]).all()
+
+    probs_list = []
+    with torch.no_grad():  # Disable gradient computation
+        for i in range(tokenized["input_ids"].shape[0]):  # Iterate over sentences (memory issues)
+            output = llm.model(
+                input_ids=tokenized["input_ids"][i].unsqueeze(0),
+                attention_mask=tokenized["attention_mask"][i].unsqueeze(0),
+            )
+            logits = output.logits[:, -1, tokens]
+            probs = logits.softmax(dim=-1)
+            probs_list.append(probs)
+    probs = torch.cat(probs_list, dim=0)
 
     predicted_strategy = [{token_to_instance[tokens[idx]] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
 

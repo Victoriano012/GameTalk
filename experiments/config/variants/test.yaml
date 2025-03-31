@@ -1,0 +1,8 @@
+# @package _global_
+train:
+  epochs: 1
+  batches_per_epoch: 1
+  group_size: 6
+  
+  replay_batches_per_epoch: 0
+  buffer_size_limit: 0
