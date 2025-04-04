@@ -4,13 +4,30 @@ from peft import get_peft_model, LoraConfig
 import torch.nn as nn
 import torch
 
+def get_actual_llm_name(llm_name, unsloth=False):
+    if unsloth:
+        llm_name = 'unsloth-' + llm_name
+    supported_llms = {
+        'llama-3B' : "meta-llama/Llama-3.2-3B-Instruct",
+        'llama-8B' : "meta-llama/Llama-3.1-8B-Instruct",
+        'unsloth-llama-3B' : "unsloth/Llama-3.2-3B-Instruct",
+        'unsloth-llama-8B' : "unsloth/Llama-3.1-8B-Instruct"
+    }
+    if llm_name in supported_llms:
+        return supported_llms[llm_name]
+    if llm_name in supported_llms.values():
+        return llm_name
+    raise Exception('Non-supported LLM')
+
+
 class LLM(nn.Module):
     def __init__(self, llm_name, stopping_criteria=None, lora_config=None, unsloth=False):
         super().__init__()
         self.stopping_criteria = stopping_criteria
+        llm_name = get_actual_llm_name(llm_name, unsloth)
 
         if unsloth:
-            assert False, "Unsloth doesn't work, don't use it"
+            raise Exception("Unsloth doesn't work, don't use it")
             pass
             # self.model, self.tokenizer = FastLanguageModel.from_pretrained(model_name = llm_name)
             # if lora_config is not None:

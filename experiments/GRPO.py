@@ -502,6 +502,13 @@ def train_loop(train_llm, opponent_llm, config):
             att_idx = [att_idx[i] for i in range(len(group_mask)) if group_mask[i]]
             num_interactions = [num_interactions[i] for i in range(len(group_mask)) if group_mask[i]]
 
+                # this happens when one player doesn't ever play
+                # so it should happen very rarely, only if player-1 makes a format error
+            if len(training_conversation) == 0:
+                print("Empty training conversation")
+                print("This is not normal")
+                continue
+
             # moves -> rewards
             if train_llm_num == 2:
                 moves = [(w[1], w[0]) for w in moves]
@@ -527,13 +534,6 @@ def train_loop(train_llm, opponent_llm, config):
 
             # with the advantages, we can forget everything after the evaluated turn
             training_conversation = [c[:idx[1]] for c, idx in zip(training_conversation, att_idx)]
-
-                # this happens when one player doesn't ever play
-                # so it should NEVER happen
-            if len(training_conversation) == 0:
-                print("Empty training conversation")
-                print("This is not normal")
-                continue
 
             # tokenize training_conversation
             tokenized = train_llm.tokenizer(training_conversation, padding=True, truncation=True, return_tensors="pt", return_offsets_mapping=True)
