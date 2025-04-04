@@ -341,70 +341,71 @@ def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_pr
 
     train_llm.train()
     optimizer.zero_grad()
-    
+
     print("    Processing minibatches", metrics_prefix, flush=True)
-    for mini_batch_num, mini_batch in enumerate(mini_batches):
-        try:
-            input_batch, padding_batch, attention_mask_batch, advantage_batch = mini_batch
+
+    for mini_batch in mini_batches:
+        input_batch, padding_batch, attention_mask_batch, advantage_batch = mini_batch
+        first_one_idx = padding_batch.to(torch.int).argmax(dim=1).min()
+        input_batch = input_batch[:,first_one_idx:]
+        padding_batch = padding_batch[:,first_one_idx:]
+        attention_mask_batch = attention_mask_batch[:,first_one_idx:]
+    
+    ref_llm.to('cuda')
+    train_llm.to('cpu')
+    ref_log_probs = []
+    with torch.no_grad():
+        for mini_batch in mini_batches:
+            input_batch, padding_batch, _, _ = mini_batch
             input_batch = input_batch.clone().to('cuda')
             padding_batch = padding_batch.clone().to('cuda')
-            attention_mask_batch = attention_mask_batch.clone().to('cuda')
-            advantage_batch = advantage_batch.clone().to('cuda')
-
-            first_one_idx = padding_batch.to(torch.int).argmax(dim=1).min()
-            input_batch = input_batch[:,first_one_idx:]
-            padding_batch = padding_batch[:,first_one_idx:]
-            attention_mask_batch = attention_mask_batch[:,first_one_idx:]
-
-            time_this_minibatch = time()
-            if not config.train.gradient_accumulation:
-                optimizer.zero_grad()
 
             # compute log_probs and ref_log_probs
-            log_probs = train_llm.get_log_probs(input_batch, padding_batch)
-            with torch.no_grad():
-                ref_log_probs = ref_llm.get_log_probs(input_batch, padding_batch)
+            ref_log_probs.append(
+                ref_llm.get_log_probs(input_batch, padding_batch).to('cpu')
+            )
 
-            # compute loss
-            ratio = torch.exp(log_probs - ref_log_probs)
-            clipped_ratio = torch.clamp(ratio, 1 - config.train.ppo_eps, 1 + config.train.ppo_eps)
+    ref_llm.to('cpu')
+    train_llm.to('cuda')
+    for mini_batch, ref_log_prob in zip(mini_batches, ref_log_probs):
+        input_batch, padding_batch, attention_mask_batch, advantage_batch = mini_batch
+        input_batch = input_batch.clone().to('cuda')
+        padding_batch = padding_batch.clone().to('cuda')
+        attention_mask_batch = attention_mask_batch.clone().to('cuda')
+        advantage_batch = advantage_batch.clone().to('cuda')
+        ref_log_prob = ref_log_prob.clone().to('cuda')
 
-            advantage_batch = advantage_batch.unsqueeze(1)
-            grpo_loss = torch.min(ratio * advantage_batch, clipped_ratio * advantage_batch)
+        if not config.train.gradient_accumulation:
+            optimizer.zero_grad()
 
-            kl = ref_log_probs - log_probs
-            ratio = torch.exp(kl)
-            kld = (ratio - kl - 1)
-            
-            masked_loss = (grpo_loss - config.train.kl_coef * kld) * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True)
+        # compute log_prob
+        log_prob = train_llm.get_log_probs(input_batch, padding_batch)
 
-            loss = - masked_loss.sum() / input_batch.shape[0]
+        # compute loss
+        ratio = torch.exp(log_prob - ref_log_prob)
+        clipped_ratio = torch.clamp(ratio, 1 - config.train.ppo_eps, 1 + config.train.ppo_eps)
 
-            # backpropagate
-            loss.backward()
-            if not config.train.gradient_accumulation:
-                optimizer.step()
+        advantage_batch = advantage_batch.unsqueeze(1)
+        grpo_loss = torch.min(ratio * advantage_batch, clipped_ratio * advantage_batch)
 
-            metrics[metrics_prefix + "kl"] += (kld * attention_mask_batch).sum().item()
-            metrics[metrics_prefix + "total_loss"] += -masked_loss.sum().item()
-            metrics[metrics_prefix + "time_minibatch (s)"] = max(metrics["time_minibatch (s)"], time() - time_this_minibatch)
+        kl = ref_log_prob - log_prob
+        ratio = torch.exp(kl)
+        kld = (ratio - kl - 1)
+        
+        masked_loss = (grpo_loss - config.train.kl_coef * kld) * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True)
 
-        except torch.OutOfMemoryError:
-            if config.train.gradient_accumulation:
-                raise
-            
-            print(f"mini-error here, mini-batch number: {mini_batch_num}")
-            metrics["mini-errors"] += 1
+        loss = - masked_loss.sum() / input_batch.shape[0]
 
-            # free memory ?
-            torch.cuda.synchronize()
-            gc.collect()
-            train_llm.zero_grad()
-            torch.cuda.empty_cache()
+        # backpropagate
+        loss.backward()
+        if not config.train.gradient_accumulation:
+            optimizer.step()
+
+        metrics[metrics_prefix + "kl"] += (kld * attention_mask_batch).sum().item()
+        metrics[metrics_prefix + "total_loss"] += -masked_loss.sum().item()
     
     if config.train.gradient_accumulation:
         optimizer.step()
-
 
 
 def train_loop(train_llm, opponent_llm, config):
@@ -474,7 +475,6 @@ def train_loop(train_llm, opponent_llm, config):
             print(conversation[0], file=conversation_file, flush=True)
 
             opponent_llm.to('cpu')
-            ref_llm.to('cuda')
 
             ### prepare batch for training
             
@@ -578,7 +578,6 @@ def train_loop(train_llm, opponent_llm, config):
             if config.trained_player in [2, "both"]:
                 eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.trained_player == "both" else "")
             opponent_llm.to('cpu')
-            ref_llm.to('cuda')
 
         # log metrics
         for metric in config.normalized_metrics:
