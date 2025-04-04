@@ -2,7 +2,7 @@
 This file contains the implementation of games
 Each instance of a game is just one move, initialized as Game(llm_move)
     where llm_move is a lowercase string with no space at beginning or end
-    if llm_move may an invalid move, in that case self.is_error() = True
+    llm_move may be an invalid move, in that case self.is_error() = True
 Each game must have defined a score method that takes two instances and returns the score (float/double) of the first player
 """
 
@@ -21,12 +21,15 @@ class RPS(Enum):
     PAPER = "paper"
     SCISSORS = "scissors"
     ERROR = "error"
-
+    
     def _missing_(value):
         return RPS.ERROR
 
     def is_error(self):
         return self == RPS.ERROR
+        
+    def default():
+        return RPS.ROCK
     
     # move1 wins -> 2., move2 wins -> 0., tie -> 1.
     def score(move1, move2) -> int:

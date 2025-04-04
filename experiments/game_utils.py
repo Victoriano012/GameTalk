@@ -19,8 +19,8 @@ def parse_last(text):
 
 
 # generate response + solve format errors from early stopping 
-def one_turn(llm, query, max_new_tokens=2000):
-    text = llm.generate(query, max_new_tokens=max_new_tokens)
+def one_turn(llm, query, **kwargs):
+    text = llm.generate(query, **kwargs)
 
     # find unfinished thinks
     reindex = []
@@ -33,7 +33,7 @@ def one_turn(llm, query, max_new_tokens=2000):
 
     # complete unfinished thinks
     if len(reindex) > 0:
-        text_2 = llm.generate(query_again, max_new_tokens=max_new_tokens)
+        text_2 = llm.generate(query_again, **kwargs)
         for idx, t in zip(reindex, text_2):
             text[idx] += " </think> " + t
 
@@ -49,6 +49,9 @@ def one_turn(llm, query, max_new_tokens=2000):
 
 def masked_call(cls, queries, mask, unpack=True):
     filtered_inputs = [q for q, m in zip(queries, mask) if m] # Extract elements where mask is 1
+    if filtered_inputs == []:
+        return [""]*len(queries)
+    
     filtered_outputs = cls(filtered_inputs)                   # Call cls once with all necessary elements
     if not unpack:
         return filtered_outputs

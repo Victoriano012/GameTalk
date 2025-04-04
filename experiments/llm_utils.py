@@ -1,34 +1,43 @@
+# from unsloth import FastLanguageModel
 from transformers import AutoTokenizer, AutoModelForCausalLM, StoppingCriteriaList, StoppingCriteria
-from peft import get_peft_model
+from peft import get_peft_model, LoraConfig
 import torch.nn as nn
 import torch
 
 class LLM(nn.Module):
-    def __init__(self, llm_name, stopping_criteria=None, lora_config=None):
+    def __init__(self, llm_name, stopping_criteria=None, lora_config=None, unsloth=False):
         super().__init__()
         self.stopping_criteria = stopping_criteria
 
-        self.tokenizer = AutoTokenizer.from_pretrained(llm_name, padding_side='left')
-        self.tokenizer.pad_token = self.tokenizer.eos_token
+        if unsloth:
+            assert False, "Unsloth doesn't work, don't use it"
+            pass
+            # self.model, self.tokenizer = FastLanguageModel.from_pretrained(model_name = llm_name)
+            # if lora_config is not None:
+            #     self.model = FastLanguageModel.get_peft_model(self.model, **lora_config)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(llm_name, padding_side='left')
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.model = AutoModelForCausalLM.from_pretrained(llm_name)
-        if lora_config is not None:
-            self.model = get_peft_model(self.model, lora_config)
+            self.model = AutoModelForCausalLM.from_pretrained(llm_name)
+            if lora_config is not None:
+                lora_config = LoraConfig(task_type="CAUSAL_LM", **lora_config)
+                self.model = get_peft_model(self.model, lora_config)
         
 
-    def generate(self, prompt, max_new_tokens=2000):
+    def generate(self, prompt, **kwargs):
         inputs = self.tokenizer(prompt,padding=True,truncation=True, return_tensors="pt").to('cuda')
         output = self.model.generate(
             **inputs,
-            max_new_tokens=max_new_tokens,
-            stopping_criteria=self.stopping_criteria(self.tokenizer),
-            pad_token_id=128009 # llm.tokenizer.eos_token
+            stopping_criteria=self.stopping_criteria(self.tokenizer) if self.stopping_criteria is not None else None,
+            pad_token_id=128009, # llm.tokenizer.eos_token
+            **kwargs
         )
         output = output[:, inputs['input_ids'].shape[-1]:]
         return self.tokenizer.batch_decode(output, skip_special_tokens=True)
     
-    def get_log_probs(self, input):
-        output = self.model(input)
+    def get_log_probs(self, input, attention_mask=None):
+        output = self.model(input, attention_mask=attention_mask)
         log_prob = output.logits.log_softmax(dim=-1)
         log_prob = log_prob[torch.arange(input.shape[0]).unsqueeze(1), torch.arange(input.shape[1]), input].reshape(input.shape)
         return log_prob

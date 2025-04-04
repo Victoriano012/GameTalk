@@ -1,5 +1,6 @@
 One round of Rock-Paper-Scissors between two LLMs named Player-1 and Player-2.
-They both know how to play the game. Before deciding their moves, they have a conversation.
+They both know how to play the game. The rules of the game are as follows: Each player, without knowing what the other will play, decides a move between rock, paper and scissors. The winner is determined by the rules: rock beats scissors, scissors beats paper and paper beats rock. If both players choose the same move, the game is a tie.
+Before deciding their moves, they have a conversation.
 You are {my_name}, and your objective is to win the game as {my_name}.
 In your turn, first think about the reasoning process and then contribute to the conversation or play.
 The reasoning process and talk are enclosed within <think> </think> and <talk> </talk> tags, respectively, i.e., <think> reasoning process here </think> <talk> converse here </talk>.

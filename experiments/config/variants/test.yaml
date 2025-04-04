@@ -6,3 +6,6 @@ train:
   
   replay_batches_per_epoch: 0
   buffer_size_limit: 0
+
+eval:
+  num_episodes: 2
