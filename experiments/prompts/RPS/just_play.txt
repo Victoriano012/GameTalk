@@ -1,0 +1,5 @@
+One round of Rock-Paper-Scissors between two LLMs named Player-1 and Player-2.
+They both know how to play the game. The rules of the game are as follows: Each player, without knowing what the other will play, decides a move between rock, paper and scissors. The winner is determined by the rules: rock beats scissors, scissors beats paper and paper beats rock. If both players choose the same move, the game is a tie.
+You are {my_name}, and your objective is to win the game as {my_name}.
+Your move must be enclosed within <play> </play> tags, i.e. <play> rock / paper / scissors </play>
+Player-1: 
