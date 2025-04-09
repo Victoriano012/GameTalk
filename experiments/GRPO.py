@@ -6,6 +6,7 @@ import random
 from types import SimpleNamespace
 from copy import deepcopy
 from time import time
+import itertools
 import wandb
 import hydra
 import sys
@@ -151,9 +152,10 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
             # player_2 query
             if 'talk' in parsed_action:
                 player_2.query[idx] += parsed_action['talk'].strip() + "\n"
-            if 'play' in parsed_action:
-                with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
-                    player_2.query[idx] += file.read().format(other_name = player_1.name)
+            if not config.one_turn:
+                if 'play' in parsed_action:
+                    with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
+                        player_2.query[idx] += file.read().format(other_name = player_1.name)
             player_2.query[idx] += player_2.name + ": <think>" 
 
             # conversation
@@ -176,9 +178,6 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
             player_1.play[idx] = Game("error")
         if player_2.play[idx] is None:
             player_2.play[idx] = Game("error")
-        # if player_1.play[idx] is None or player_2.play[idx] is None:
-        #     errors[idx] = AssertionError(f"Players didn't play : {player_1.name} -> {player_1.play[idx]}, {player_2.name} -> {player_2.play[idx]}")
-        #     player_1.play[idx] = player_2.play[idx] = Game("error")
 
     # concat moves
     moves = list(zip(player_1.play, player_2.play))
@@ -186,7 +185,6 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     training_conversation = player_1.query if player_1.train else player_2.query
     metrics["conversation_length (tokens)"] = len((player_1 if player_1.train else player_2).llm.tokenizer(training_conversation[0])['input_ids'])
     
-    # return conversation, moves, errors, (training_conversation, attention_indices, group_indices, num_interactions)
     return conversation, moves, (training_conversation, attention_indices, group_indices, num_interactions)
 
 def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
@@ -329,8 +327,11 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     metrics[metrics_prefix+"word_based_loss"] /= word_based_count if word_based_count != 0 else 1
     metrics[metrics_prefix+"internal_state_loss"] /= internal_state_count if internal_state_count != 0 else 1
 
-def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
+def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
     input, padding, attention_mask, advantage = batch
+
+    curr_kl_loss = 0
+    curr_total_loss = 0
 
     # random shuffle the batch
     indices = torch.randperm(input.shape[0])
@@ -351,6 +352,7 @@ def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_pr
         padding_batch = padding_batch[:,first_one_idx:]
         attention_mask_batch = attention_mask_batch[:,first_one_idx:]
     
+    # compute ref_log_probs
     ref_llm.to('cuda')
     train_llm.to('cpu')
     ref_log_probs = []
@@ -359,8 +361,6 @@ def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_pr
             input_batch, padding_batch, _, _ = mini_batch
             input_batch = input_batch.clone().to('cuda')
             padding_batch = padding_batch.clone().to('cuda')
-
-            # compute log_probs and ref_log_probs
             ref_log_probs.append(
                 ref_llm.get_log_probs(input_batch, padding_batch).to('cpu')
             )
@@ -390,7 +390,7 @@ def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_pr
 
         kl = ref_log_prob - log_prob
         ratio = torch.exp(kl)
-        kld = (ratio - kl - 1)
+        kld = (ratio - 1 - kl)
         
         masked_loss = (grpo_loss - config.train.kl_coef * kld) * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True)
 
@@ -401,11 +401,141 @@ def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_pr
         if not config.train.gradient_accumulation:
             optimizer.step()
 
-        metrics[metrics_prefix + "kl"] += (kld * attention_mask_batch).sum().item()
-        metrics[metrics_prefix + "total_loss"] += -masked_loss.sum().item()
+        # curr_kl_loss += (kld * attention_mask_batch).sum().item()
+        curr_kl_loss += (kld * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True) / input_batch.shape[0]).abs().sum().item()
+        curr_total_loss += masked_loss.abs().sum().item() / input_batch.shape[0]
     
+    metrics[metrics_prefix + "|kl|"] += curr_kl_loss/len(mini_batches)
+    metrics[metrics_prefix + "|total_loss|"] += curr_total_loss/len(mini_batches)
     if config.train.gradient_accumulation:
         optimizer.step()
+
+def plackett_luce_logprob(v):
+    if isinstance(v, list):
+        v = torch.stack(v)
+    logprob = torch.tensor(0.0, dtype=v.dtype, device=v.device)
+    for k in range(len(v)):
+        denominator = torch.sum(v[k:])
+        logprob += torch.log(v[k]) - torch.log(denominator)
+    return logprob
+
+
+def all_subsets(tensor):
+    for r in range(1, len(tensor) + 1):
+        for comb in itertools.combinations(range(len(tensor)), r):
+            yield tensor[list(comb)]
+
+def tied_plackett_luce_logprob(sets):
+    logprob = torch.tensor(0.0, dtype=sets[0].dtype, device=sets[0].device)
+
+    for tie_group in sets:
+        logprob += torch.log(tie_group).mean()
+
+    for set in itertools.accumulate(sets[::-1], lambda acc, x: torch.cat([acc,x])):
+        for subset in all_subsets(set):
+            logprob -= torch.log(subset).mean()
+
+    return logprob
+
+
+def masked_mean(tensor, mask):
+    sum_tensor = (tensor*mask).sum(dim=-1)
+    count_nonzero = mask.sum(dim=-1)
+    return sum_tensor / count_nonzero.float()
+
+def masked_sum(tensor, mask):
+    return (tensor*mask).sum(dim=-1)
+
+def dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
+    print("    Processing minibatches", metrics_prefix, flush=True)
+    input, padding, attention_mask, reward, group_indices = batch
+    mini_size = config.train.minibatch_size
+
+    unique_groups = group_indices.unique()
+    groups = {}
+    for g in unique_groups:
+        groups[g] = (input[group_indices == g], padding[group_indices == g], attention_mask[group_indices == g], reward[group_indices == g])
+
+    metrics["skipped_groups"] = 0
+
+    unique_groups = unique_groups[torch.randperm(unique_groups.size()[0])]
+    for input_group, padding_group, attention_mask_group, reward_group in groups.values():
+
+        # compute log_probs
+        mini_batches = [(input_group[i:i+mini_size], padding_group[i:i+mini_size]) for i in range(0, len(input_group), mini_size)]
+
+        train_llm.to('cpu')
+        ref_llm.to('cuda')
+        ref_log_probs = []
+        with torch.no_grad():
+            for mini_batch in mini_batches:
+                input_batch, padding_batch = mini_batch
+                input_batch = input_batch.clone().to('cuda')
+                padding_batch = padding_batch.clone().to('cuda')
+                ref_log_probs.append(
+                    ref_llm.get_log_probs(input_batch, padding_batch)
+                )
+
+        ref_llm.to('cpu')
+        train_llm.to('cuda')
+        log_probs = []
+        for mini_batch in mini_batches:
+            input_batch, padding_batch = mini_batch
+            input_batch = input_batch.clone().to('cuda')
+            padding_batch = padding_batch.clone().to('cuda')
+            log_probs.append(
+                train_llm.get_log_probs(input_batch, padding_batch)
+            )
+        
+        attention_mask_group = attention_mask_group.to('cuda')
+        ref_log_probs = torch.cat(ref_log_probs).to('cuda')
+        log_probs = torch.cat(log_probs).to('cuda')
+        if config.train.dpo.average_log_prob == True:
+            ref_log_probs = masked_mean(ref_log_probs, attention_mask_group)
+            log_probs = masked_mean(log_probs, attention_mask_group)
+        else:
+            ref_log_probs = masked_sum(ref_log_probs, attention_mask_group)
+            log_probs = masked_sum(log_probs, attention_mask_group)
+        dpo_weight = torch.exp(config.train.kl_coef * (ref_log_probs - log_probs))
+
+        optimizer.zero_grad()
+
+        unique_rewards = torch.sort(reward_group.unique(), descending=True).values
+        if len(unique_rewards) <= 1:
+            metrics["skipped_groups"] += 1
+            continue
+        dpo_weight_groupped_by_reward = [dpo_weight[reward_group == r] for r in unique_rewards]
+
+        if config.train.dpo.variant == 'all_pairs':
+            pair_log_probs = []
+            for i in range(len(dpo_weight_groupped_by_reward)):
+                for j in range(i + 1, len(dpo_weight_groupped_by_reward)):
+                    for x in dpo_weight_groupped_by_reward[i]:
+                        for y in dpo_weight_groupped_by_reward[j]:
+                            pair_log_probs.append(plackett_luce_logprob([x, y]))
+            loss = - torch.stack(pair_log_probs).mean()
+
+        elif config.train.dpo.variant == 'all_perms':
+            perm_log_probs = []
+            for combination in itertools.product(*dpo_weight_groupped_by_reward):
+                perm_log_probs.append(plackett_luce_logprob(combination))
+            loss = - torch.stack(perm_log_probs).mean()
+        
+        elif config.train.dpo.variant == 'with_ties':
+            loss = - tied_plackett_luce_logprob(dpo_weight_groupped_by_reward)
+
+        loss.backward()
+        optimizer.step()
+    
+
+
+def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
+    if config.train.method == "GRPO":
+        grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
+    elif config.train.method == "DPO":
+        dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
+    else:
+        raise Exception("Your train method is not allowed, it should be GRPO or DPO")
 
 
 def train_loop(train_llm, opponent_llm, config):
@@ -413,7 +543,7 @@ def train_loop(train_llm, opponent_llm, config):
     logger = wandb.init(
         config=OmegaConf.to_container(config, resolve=True),
         name = config.run_name,
-        project = config.wandb.project
+        **config.wandb
     )
 
     conversation_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.conversations}", "w")
@@ -424,7 +554,6 @@ def train_loop(train_llm, opponent_llm, config):
     buffer = []
 
     ref_llm = LLM(config.train_llm_name, stopping_criteria=one_turn_stop_criteria, lora_config=config.lora, unsloth=config.unsloth)
-    # ref_llm = deepcopy(train_llm)
     ref_llm.eval()
     opponent_llm.eval()
 
@@ -433,11 +562,13 @@ def train_loop(train_llm, opponent_llm, config):
 
     for epoch in range(config.train.epochs):
         print(f"EPOCH {epoch}", flush=True)
-        if config.lora is None:
-            ref_llm.model.load_state_dict(train_llm.model.state_dict())
-        else:
-            lora_state_dict = {k: v for k, v in train_llm.model.state_dict().items() if 'lora' in k}
-            ref_llm.model.load_state_dict(lora_state_dict, strict=False)
+        if not config.train.const_ref_llm:
+            if config.lora is None:
+                ref_llm.model.load_state_dict(train_llm.model.state_dict())
+            else:
+                lora_state_dict = {k: v for k, v in train_llm.model.state_dict().items() if 'lora' in k}
+                ref_llm.model.load_state_dict(lora_state_dict, strict=False)
+        
         metrics = {metric : 0 for metric in config.tracked_metrics}
         # no metric is divided by num_samples until just before logging
 
@@ -477,17 +608,6 @@ def train_loop(train_llm, opponent_llm, config):
             opponent_llm.to('cpu')
 
             ### prepare batch for training
-            
-            """
-            # get rid of errors
-            metrics["num_error_conversations"] = len(errors) - errors.count(None)
-            conversation = [c for c, e in zip(conversation, errors) if e is None]
-            moves = [w for w, e in zip(moves, errors) if e is None]
-            training_conversation = [c for c, e in zip(training_conversation, errors) if e is None]
-            att_idx = [a for a, e in zip(att_idx, errors) if e is None]
-            group_indices = [g for g, e in zip(group_indices, errors) if e is None]
-            num_interactions = [n for n, e in zip(num_interactions, errors) if e is None]
-            """
 
             # compute groups for GRPO
             group_indices = torch.tensor(group_indices)
@@ -519,18 +639,22 @@ def train_loop(train_llm, opponent_llm, config):
             metrics["loss_rate"] += (rewards <= 0.).sum().item()
             metrics["reward"] += rewards.sum().item()
             metrics["opponent_reward"] += opponent_rewards.sum().item()
-            metrics["lost_by_error"] = sum(1 for w in moves if w[0].is_error())
-            metrics["won_by_error"] = sum(1 for w in moves if w[1].is_error() and not w[0].is_error())
+            metrics["lost_by_error (%)"] += sum(1 for w in moves if w[0].is_error())
+            metrics["won_by_error (%)"] += sum(1 for w in moves if w[1].is_error() and not w[0].is_error())
 
-            # compute advantages
-            means = {group.item() : rewards[group_indices == group].mean() for group in unique_groups}
-            stds = {group.item() : rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups}
-            group_indices = group_indices.tolist()
-            advantage = torch.tensor([(rewards[i] - means[group_indices[i]]) / stds[group_indices[i]] for i in range(len(rewards))])
+            if config.train.method == "GRPO":
+                # compute advantages
+                means = {group.item() : rewards[group_indices == group].mean() for group in unique_groups}
+                stds = {group.item() : rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups}
+                group_indices = group_indices.tolist()
+                advantage = torch.tensor([(rewards[i] - means[group_indices[i]]) / stds[group_indices[i]] for i in range(len(rewards))])
+                metrics["average_mean"] = sum(means.values()) / len(means)
+                metrics["average_std"] = sum(stds.values()) / len(stds)
 
-            # multiply by discount factor
-            discount_factor = torch.full(advantage.shape, config.train.gamma) ** ((torch.tensor(num_interactions)-train_llm_num)//2 - torch.tensor(group_indices))
-            advantage = (advantage*discount_factor)
+                # multiply by discount factor
+                if config.train.gamma != 1:
+                    discount_factor = torch.full(advantage.shape, config.train.gamma) ** ((torch.tensor(num_interactions)-train_llm_num)//2 - torch.tensor(group_indices))
+                    advantage = (advantage*discount_factor)
 
             # with the advantages, we can forget everything after the evaluated turn
             training_conversation = [c[:idx[1]] for c, idx in zip(training_conversation, att_idx)]
@@ -548,7 +672,10 @@ def train_loop(train_llm, opponent_llm, config):
                 attention_mask.append(mask)
             attention_mask = torch.tensor(attention_mask)
             
-            curr_batch = (input, padding, attention_mask, advantage)
+            if config.train.method == "GRPO":
+                curr_batch = (input, padding, attention_mask, advantage)
+            else:
+                curr_batch = (input, padding, attention_mask, rewards, group_indices)
             buffer.append(curr_batch)
 
             # train current batch
@@ -568,6 +695,8 @@ def train_loop(train_llm, opponent_llm, config):
             replay_batch = random.choice(buffer)
             batch_step(train_llm, ref_llm, optimizer, replay_batch, config, metrics, "replay_")
         metrics["time_total_replay (s)"] = time() - time_pre_replay
+        metrics["replay_|kl|"] /= config.train.replay_batches_per_epoch
+        metrics["replay_|total_loss|"] /= config.train.replay_batches_per_epoch
         
         # eval if needed
         if config.eval.eval_every is not None and epoch % config.eval.eval_every == 0:

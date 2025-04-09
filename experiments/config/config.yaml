@@ -3,11 +3,13 @@ game_name: "rock-paper-scissors"
 
 player_1_name: "Player-1"
 player_2_name: "Player-2"
-train_llm_name: "llama-3B"
-opponent_llm_name: ${train_llm_name}
 trained_player: 2   # 1 or 2 or "both"
 
-unsloth : False # it's not supported yet (they have a bug that makes .backward() break)
+train_llm_name: "llama-3B"
+opponent_llm_name: ${train_llm_name}
+unsloth : False
+
+one_turn : False
 
 train:
   lr: 1e-5
@@ -27,6 +29,8 @@ train:
 
   save_every: 50
 
+  const_ref_llm : True
+
   replay_batches_per_epoch: 3
   buffer_size_limit: 16
 
@@ -34,6 +38,11 @@ train:
   trained_temperature : 1
   opponent_top_p : 0.9
   trained_top_p : 0.5
+  
+  method : "GRPO" # "DPO" / "GRPO"
+  dpo:
+    variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
+    average_log_prob : False
 
 
 eval:
@@ -78,10 +87,10 @@ tracked_metrics: [
   "reward",
   "opponent_reward",
   "normalized_relative_advantage",
-  "kl",
-  "total_loss",
-  "replay_kl",
-  "replay_total_loss",
+  "|kl|",
+  "|total_loss|",
+  "replay_|kl|",
+  "replay_|total_loss|",
   # "internal_state_loss",   # only tracked when evaluating
   # "word_based_loss",       # only tracked when evaluating
 
@@ -89,8 +98,8 @@ tracked_metrics: [
   "num_interactions",
   "conversation_length (tokens)", # just root conversation
   # "num_error_conversations",
-  "lost_by_error",
-  "won_by_error",
+  "lost_by_error (%)",
+  "won_by_error (%)",
   # "mini-errors",
 
   "memory_usage_generation (GB)",
@@ -106,11 +115,11 @@ tracked_metrics: [
 normalized_metrics: [
   "reward",
   "opponent_reward",
-  "total_loss",
-  "kl",
   "win_rate",
   "draw_rate",
   "loss_rate",
+  "lost_by_error (%)",
+  "won_by_error (%)",
   "num_interactions"
 ]
 

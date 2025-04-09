@@ -4,8 +4,8 @@ train:
   batches_per_epoch: 1
   group_size: 6
   
-  replay_batches_per_epoch: 0
-  buffer_size_limit: 0
+  replay_batches_per_epoch: 1
+  buffer_size_limit: 1
 
 eval:
   num_episodes: 2

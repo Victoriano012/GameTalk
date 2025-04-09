@@ -53,14 +53,23 @@ class LLM(nn.Module):
         output = output[:, inputs['input_ids'].shape[-1]:]
         return self.tokenizer.batch_decode(output, skip_special_tokens=True)
     
+    # def get_log_probs(self, input, attention_mask=None):
+    #     output = self.model(input, attention_mask=attention_mask)
+    #     log_prob = output.logits.log_softmax(dim=-1)
+    #     log_prob = log_prob[torch.arange(input.shape[0]).unsqueeze(1), torch.arange(input.shape[1]), input].reshape(input.shape)
+    #     return log_prob
+    
+    # Reference: https://www.tylerromero.com/posts/2025-02-selective-log-softmax/
     def get_log_probs(self, input, attention_mask=None):
-        output = self.model(input, attention_mask=attention_mask)
-        log_prob = output.logits.log_softmax(dim=-1)
-        log_prob = log_prob[torch.arange(input.shape[0]).unsqueeze(1), torch.arange(input.shape[1]), input].reshape(input.shape)
-        return log_prob
+        logits = self.model(input, attention_mask=attention_mask).logits
+        logsumexp_values = torch.stack([torch.logsumexp(l, dim=-1) for l in logits])
+        token_logits = torch.gather(logits, dim=-1, index=input.unsqueeze(-1)).squeeze(-1)
+        token_logprobs = token_logits - logsumexp_values
+        return token_logprobs
 
 
 default_stopping_text = ["</talk>", "</play>"]
+# default_stopping_text = ["</play>"]
 
 # stopping criteria to force generation stopping after each player's turn
 class one_player_generation(StoppingCriteria):
