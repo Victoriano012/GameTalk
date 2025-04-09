@@ -51,7 +51,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         name = config.game.player_1_name,
         query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>"],
         train = train_llm_num == 1,
-        play = [None],
+        play = [None]*config.train.group_size,
         generation_config = {
             "max_new_tokens" : config.train.max_new_tokens,
             "top_p" : config.train.trained_top_p if train_llm_num == 1 else config.train.opponent_top_p,
@@ -64,7 +64,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         name = config.game.player_2_name,
         query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name)],
         train = train_llm_num == 2,
-        play = [None],
+        play = [None]*config.train.group_size,
         generation_config = {
             "max_new_tokens" : config.train.max_new_tokens,
             "top_p" : config.train.trained_top_p if train_llm_num == 2 else config.train.opponent_top_p,
@@ -73,10 +73,9 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         }
     )
 
-    must_play = [False]
-    group_indices = [-1]
-    attention_indices = [(0,0)]
-    num_interactions = [-1] # unfinished := -1
+    must_play = [False]*config.train.group_size
+    attention_indices = [[] for _ in range(config.train.group_size)]
+    num_interactions = [-1]*config.train.group_size # unfinished := -1
 
     print("    Creating batch", flush=True)
     for interaction_idx in range(2*config.train.max_interactions):
@@ -84,19 +83,6 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         # check if both players played in all games
         if min(num_interactions) != -1:
             break
-
-        # replicate root conversation if it's not over and training
-        if player_1.train and num_interactions[0] == -1:
-            conversation += [conversation[0]]*config.train.group_size
-            player_1.query += [player_1.query[0]]*config.train.group_size
-            player_2.query += [player_2.query[0]]*config.train.group_size
-            player_1.play += [player_1.play[0]]*config.train.group_size
-            player_2.play += [player_2.play[0]]*config.train.group_size
-            
-            must_play += [must_play[0]]*config.train.group_size
-            group_indices += [group_indices[-1] + 1]*config.train.group_size
-            attention_indices += [len(player_1.query[0])]*config.train.group_size # end index added later
-            num_interactions += [-1]*config.train.group_size
 
         # generate actions
         actions = masked_call(
@@ -107,6 +93,9 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         for idx, action in enumerate(actions):
             if action == "":
                 continue
+            
+            if player_1.train:
+                start_att_idx = len(player_1.query[idx])
 
             try:
                 parsed_action = parse_last(action)
@@ -115,8 +104,8 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
                 player_1.query[idx] += action[len(think_tag):]
                 conversation[idx] += player_1.name + " did a formating error, their response could not be parsed.\n"
 
-                if isinstance(attention_indices[idx], int):
-                    attention_indices[idx] = (attention_indices[idx], len(player_1.query[idx]))
+                if player_1.train:
+                    attention_indices[idx].append(start_att_idx, len(player_1.query[idx]))
 
                 player_1.play[idx] = Game("error")
                 if player_2.play[idx] == None:
@@ -144,8 +133,8 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
             if 'play' in parsed_action:
                 player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
             
-            if isinstance(attention_indices[idx], int):
-                attention_indices[idx] = (attention_indices[idx], len(player_1.query[idx]))
+            if player_1.train:
+                attention_indices[idx].append(start_att_idx, len(player_1.query[idx]))
             player_1.query[idx] += player_2.name + ": " 
             
             # player_2 query
@@ -184,7 +173,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     training_conversation = player_1.query if player_1.train else player_2.query
     metrics["conversation_length (tokens)"] = len((player_1 if player_1.train else player_2).llm.tokenizer(training_conversation[0])['input_ids'])
     
-    return conversation, moves, (training_conversation, attention_indices, group_indices, num_interactions)
+    return conversation, moves, (training_conversation, attention_indices, num_interactions)
 
 def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     """
@@ -410,156 +399,11 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
         optimizer.step()
 
 
-
-def plackett_luce_logprob(v):
-    if isinstance(v, list):
-        v = torch.stack(v)
-    logprob = torch.tensor(0.0, dtype=v.dtype, device=v.device)
-    for k in range(len(v)):
-        denominator = torch.sum(v[k:])
-        logprob += torch.log(v[k]) - torch.log(denominator)
-    return logprob
-
-
-def all_subsets(tensor):
-    for r in range(1, len(tensor) + 1):
-        for comb in itertools.combinations(range(len(tensor)), r):
-            yield tensor[list(comb)]
-
-def tied_plackett_luce_logprob(sets):
-    logprob = torch.tensor(0.0, dtype=sets[0].dtype, device=sets[0].device)
-
-    for tie_group in sets:
-        if (tie_group <= 0.).any():
-            print(tie_group)
-        logprob += torch.log(tie_group).mean()
-
-    for set in itertools.accumulate(sets[::-1], lambda acc, x: torch.cat([acc,x])):
-        for subset in all_subsets(set):
-            if (subset <= 0.).any():
-                print(subset)
-            logprob -= torch.log(subset).mean()
-
-    return logprob
-
-
-def masked_mean(tensor, mask):
-    sum_tensor = (tensor*mask).sum(dim=-1)
-    count_nonzero = mask.sum(dim=-1)
-    return sum_tensor / count_nonzero.float()
-
-def masked_sum(tensor, mask):
-    return (tensor*mask).sum(dim=-1)
-
-def dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
-    print("    Processing minibatches", metrics_prefix, flush=True)
-    input, padding, attention_mask, reward, group_indices = batch
-    mini_size = config.train.minibatch_size
-
-    unique_groups = group_indices.unique()
-    groups = {}
-    for g in unique_groups:
-        groups[g] = (input[group_indices == g], padding[group_indices == g], attention_mask[group_indices == g], reward[group_indices == g])
-
-    metrics[metrics_prefix+"skipped_groups"] = 0
-
-    trainable_parameters = [p for p in train_llm.parameters() if p.requires_grad]
-
-    for input_group, padding_group, attention_mask_group, reward_group in groups.values():
-
-        # compute log_probs
-        mini_batches = [(input_group[i:i+mini_size], padding_group[i:i+mini_size], attention_mask_group[i:i+mini_size]) for i in range(0, len(input_group), mini_size)]
-
-        train_llm.to('cpu')
-        ref_llm.to('cuda')
-        ref_log_probs = []
-        with torch.no_grad():
-            for mini_batch in mini_batches:
-                input_batch, padding_batch, _ = mini_batch
-                input_batch = input_batch.clone().to('cuda')
-                padding_batch = padding_batch.clone().to('cuda')
-                ref_log_probs.append(
-                    ref_llm.get_log_probs(input_batch, padding_batch)
-                )
-
-        ref_llm.to('cpu')
-        train_llm.to('cuda')
-
-        dpo_weights = []
-        dpo_grads = []
-        
-        for idx, mini_batch in enumerate(mini_batches):
-            input_batch, padding_batch, attention_mask_batch = mini_batch
-            input_batch = input_batch.clone().to('cuda')
-            padding_batch = padding_batch.clone().to('cuda')
-            attention_mask_batch = attention_mask_batch.clone().to('cuda')
-            ref_log_prob = ref_log_probs[idx].to('cuda')
-
-            log_prob = train_llm.get_log_probs(input_batch, padding_batch)
-
-            if config.train.dpo.average_log_prob == True:
-                ref_log_prob = masked_mean(ref_log_prob, attention_mask_batch)
-                log_prob = masked_mean(log_prob, attention_mask_batch)
-            else:
-                ref_log_prob = masked_sum(ref_log_prob, attention_mask_batch)
-                log_prob = masked_sum(log_prob, attention_mask_batch)
-            dpo_weight = torch.exp(config.train.kl_coef * (ref_log_prob - log_prob))
-
-            # Store gradients for each parameter (to free memory of the computation graph)
-            for w in dpo_weight:
-                optimizer.zero_grad()
-
-                w.backward()
-                dpo_weights.append(w.detach())
-
-                grads_i = [p.grad.detach().clone() for p in trainable_parameters]
-
-                dpo_grads.append(grads_i)
-        optimizer.zero_grad()
-
-        # Compute loss
-        dpo_weights = torch.stack(dpo_weights).to('cuda')
-        dpo_weights.requires_grad = True
-
-        unique_rewards = torch.sort(reward_group.unique(), descending=True).values
-        if len(unique_rewards) <= 1:
-            metrics[metrics_prefix+"skipped_groups"] += 1
-            continue
-        dpo_weight_groupped_by_reward = [dpo_weights[reward_group == r] for r in unique_rewards]
-
-        if config.train.dpo.variant == 'all_pairs':
-            pair_log_probs = []
-            for i in range(len(dpo_weight_groupped_by_reward)):
-                for j in range(i + 1, len(dpo_weight_groupped_by_reward)):
-                    for x in dpo_weight_groupped_by_reward[i]:
-                        for y in dpo_weight_groupped_by_reward[j]:
-                            pair_log_probs.append(plackett_luce_logprob([x, y]))
-            loss = - torch.stack(pair_log_probs).mean()
-
-        elif config.train.dpo.variant == 'all_perms':
-            perm_log_probs = []
-            for combination in itertools.product(*dpo_weight_groupped_by_reward):
-                perm_log_probs.append(plackett_luce_logprob(combination))
-            loss = - torch.stack(perm_log_probs).mean()
-        
-        elif config.train.dpo.variant == 'with_ties':
-            loss = - tied_plackett_luce_logprob(dpo_weight_groupped_by_reward)
-
-        # Compute gradients with chain rule
-        loss.backward()
-        for i, p in enumerate(trainable_parameters):
-            p.grad = sum(w_grad * g[i] for w_grad, g in zip(dpo_weights.grad, dpo_grads))
-        optimizer.step()
-
-
-
 def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
-    if config.train.method == "grpo":
+    if config.train.method == "star":
         grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
-    elif config.train.method == "dpo":
-        dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
     else:
-        raise Exception('Your train method is not allowed, it should be "grpo" or "dpo"')
+        raise Exception('Your train method is not allowed, it has to be "star" in this branch')
 
 
 def train_loop(train_llm, opponent_llm, config):
