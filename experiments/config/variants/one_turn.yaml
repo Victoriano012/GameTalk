@@ -1,0 +1,18 @@
+# @package _global_
+
+game:
+  stopping_text: ["</play>"]
+  one_turn : True
+  trained_player: 1
+
+train:
+  max_interactions: 1
+
+prompts:
+  initial: "initial_oneturn.txt"
+
+logs:
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/one_turn/"
+
+wandb:
+  tags: ["one-turn"]

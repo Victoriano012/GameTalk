@@ -1,0 +1,10 @@
+One round of Rock-Paper-Scissors between two LLMs named Player-1 and Player-2.
+They both know how to play the game. The rules of the game are as follows: Each player, without knowing what the other will play, decides a move between rock, paper and scissors. The winner is determined by the rules: rock beats scissors, scissors beats paper and paper beats rock. If both players choose the same move, the game is a tie.
+Before playing their moves, they can say something to the other player.
+You are {my_name}, and your objective is to win the game as {my_name}.
+In your turn, first think about your strategy, then contribute to the conversation and play.
+The reasoning process, talk and play are enclosed within <think> </think>, <talk> </talk> and <play> </play> tags, respectively, i.e., <think> reasoning process here </think> <talk> converse here </talk> <play> rock / paper / scissors </play>.
+YOU MUST DO THE THREE THINGS IN YOUR TURN, THINK, TALK AND PLAY.
+You are expected to influence {other_name}'s playing style through your interactions, allowing you gain a strategic advantage and ultimately win.
+Afterwards {other_name} will play.
+Player-1: 

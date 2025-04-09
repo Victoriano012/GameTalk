@@ -1,0 +1,13 @@
+# @package _global_
+
+train:
+  method: "DPO"
+  # group_size: 6
+  # minibatch_size: 1
+  # max_new_tokens: 100
+
+logs:
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/dpo/"
+  
+wandb:
+  tags: ["dpo"]
