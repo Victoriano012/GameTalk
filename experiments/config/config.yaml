@@ -40,9 +40,9 @@ train:
   opponent_temperature : 0.6
   trained_temperature : 1
   opponent_top_p : 0.9
-  trained_top_p : 0.5
+  trained_top_p : 0.9
   
-  method : "grpo" # "dpo" / "grpo"
+  method : "star" # "star" is the only option in this branch
   dpo:
     variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
     average_log_prob : False

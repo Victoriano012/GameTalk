@@ -41,36 +41,39 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     Game = get_game(config.game.name)
     
     swapped = False
-    conversation = [""]
+    conversation = ["" for _ in range(config.train.group_size)]
 
     with open(config.prompts.folder + config.prompts.initial, "r") as file:
         initial_prompt = file.read()
+        
+    train_generation_config = {
+        "max_new_tokens" : config.train.max_new_tokens,
+        "top_p" : config.train.trained_top_p,
+        "temperature" : config.train.trained_temperature,
+        "do_sample" : (config.train.trained_temperature > 0)
+    }
+    opponent_generation_config = {
+        "max_new_tokens" : config.train.max_new_tokens,
+        "top_p" : config.train.opponent_top_p,
+        "temperature" : config.train.opponent_temperature,
+        "do_sample" : (config.train.opponent_temperature > 0)
+    }
     
     player_1 = SimpleNamespace(
         llm = llm_1,
         name = config.game.player_1_name,
-        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>"],
+        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>" for _ in range(config.train.group_size)],
         train = train_llm_num == 1,
         play = [None]*config.train.group_size,
-        generation_config = {
-            "max_new_tokens" : config.train.max_new_tokens,
-            "top_p" : config.train.trained_top_p if train_llm_num == 1 else config.train.opponent_top_p,
-            "temperature" : config.train.trained_temperature if train_llm_num == 1 else config.train.opponent_temperature,
-            "do_sample" : (config.train.trained_temperature > 0) if train_llm_num == 1 else (config.train.opponent_temperature > 0)
-        }
+        generation_config = train_generation_config if train_llm_num == 1 else opponent_generation_config
     )
     player_2 = SimpleNamespace(
         llm = llm_2,
         name = config.game.player_2_name,
-        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name)],
+        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name) for _ in range(config.train.group_size)],
         train = train_llm_num == 2,
         play = [None]*config.train.group_size,
-        generation_config = {
-            "max_new_tokens" : config.train.max_new_tokens,
-            "top_p" : config.train.trained_top_p if train_llm_num == 2 else config.train.opponent_top_p,
-            "temperature" : config.train.trained_temperature if train_llm_num == 2 else config.train.opponent_temperature,
-            "do_sample" : (config.train.trained_temperature > 0) if train_llm_num == 2 else (config.train.opponent_temperature > 0)
-        }
+        generation_config = train_generation_config if train_llm_num == 2 else opponent_generation_config
     )
 
     must_play = [False]*config.train.group_size
@@ -94,8 +97,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
             if action == "":
                 continue
             
-            if player_1.train:
-                start_att_idx = len(player_1.query[idx])
+            start_att_idx = len(player_1.query[idx])
 
             try:
                 parsed_action = parse_last(action)
@@ -105,7 +107,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
                 conversation[idx] += player_1.name + " did a formating error, their response could not be parsed.\n"
 
                 if player_1.train:
-                    attention_indices[idx].append(start_att_idx, len(player_1.query[idx]))
+                    attention_indices[idx].append((start_att_idx, len(player_1.query[idx])))
 
                 player_1.play[idx] = Game("error")
                 if player_2.play[idx] == None:
@@ -134,7 +136,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
                 player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
             
             if player_1.train:
-                attention_indices[idx].append(start_att_idx, len(player_1.query[idx]))
+                attention_indices[idx].append((start_att_idx, len(player_1.query[idx])))
             player_1.query[idx] += player_2.name + ": " 
             
             # player_2 query
@@ -315,26 +317,27 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     metrics[metrics_prefix+"word_based_loss"] /= word_based_count if word_based_count != 0 else 1
     metrics[metrics_prefix+"internal_state_loss"] /= internal_state_count if internal_state_count != 0 else 1
 
-def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
-    input, padding, attention_mask, advantage = batch
+def star_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
+    input, padding, attention_mask = batch
 
     curr_kl_loss = 0
     curr_total_loss = 0
 
     # random shuffle the batch
     indices = torch.randperm(input.shape[0])
-    input, padding, attention_mask, advantage = input[indices], padding[indices], attention_mask[indices], advantage[indices]
+    input, padding, attention_mask = input[indices], padding[indices], attention_mask[indices]
 
     mini_size = config.train.minibatch_size
-    mini_batches = [(input[i:i+mini_size], padding[i:i+mini_size], attention_mask[i:i+mini_size], advantage[i:i+mini_size]) for i in range(0, len(input), mini_size)]
+    mini_batches = [(input[i:i+mini_size], padding[i:i+mini_size], attention_mask[i:i+mini_size]) for i in range(0, len(input), mini_size)]
 
     train_llm.train()
     optimizer.zero_grad()
 
     print("    Processing minibatches", metrics_prefix, flush=True)
 
+    # erase starting 0s
     for mini_batch in mini_batches:
-        input_batch, padding_batch, attention_mask_batch, advantage_batch = mini_batch
+        input_batch, padding_batch, attention_mask_batch = mini_batch
         first_one_idx = padding_batch.to(torch.int).argmax(dim=1).min()
         input_batch = input_batch[:,first_one_idx:]
         padding_batch = padding_batch[:,first_one_idx:]
@@ -346,7 +349,7 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
     ref_log_probs = []
     with torch.no_grad():
         for mini_batch in mini_batches:
-            input_batch, padding_batch, _, _ = mini_batch
+            input_batch, padding_batch, _ = mini_batch
             input_batch = input_batch.clone().to('cuda')
             padding_batch = padding_batch.clone().to('cuda')
             ref_log_probs.append(
@@ -356,11 +359,10 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
     ref_llm.to('cpu')
     train_llm.to('cuda')
     for mini_batch, ref_log_prob in zip(mini_batches, ref_log_probs):
-        input_batch, padding_batch, attention_mask_batch, advantage_batch = mini_batch
+        input_batch, padding_batch, attention_mask_batch = mini_batch
         input_batch = input_batch.clone().to('cuda')
         padding_batch = padding_batch.clone().to('cuda')
         attention_mask_batch = attention_mask_batch.clone().to('cuda')
-        advantage_batch = advantage_batch.clone().to('cuda')
         ref_log_prob = ref_log_prob.clone().to('cuda')
 
         if not config.train.gradient_accumulation:
@@ -370,17 +372,11 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
         log_prob = train_llm.get_log_probs(input_batch, padding_batch)
 
         # compute loss
-        ratio = torch.exp(log_prob - ref_log_prob)
-        clipped_ratio = torch.clamp(ratio, 1 - config.train.ppo_eps, 1 + config.train.ppo_eps)
-
-        advantage_batch = advantage_batch.unsqueeze(1)
-        grpo_loss = torch.min(ratio * advantage_batch, clipped_ratio * advantage_batch)
-
         kl = ref_log_prob - log_prob
         ratio = torch.exp(kl)
         kld = (ratio - 1 - kl)
         
-        masked_loss = (grpo_loss - config.train.kl_coef * kld) * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True)
+        masked_loss = (log_prob - config.train.kl_coef * kld) * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True)
 
         loss = - masked_loss.sum() / input_batch.shape[0]
 
@@ -401,7 +397,7 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
 
 def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
     if config.train.method == "star":
-        grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
+        star_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
     else:
         raise Exception('Your train method is not allowed, it has to be "star" in this branch')
 
@@ -460,9 +456,8 @@ def train_loop(train_llm, opponent_llm, config):
             time_pre_generation = time()
             torch.cuda.reset_peak_memory_stats()
 
-            # conversation, moves, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config, metrics)
             conversation, moves, train_data = create_batch(llm_1, llm_2, train_llm_num, config, metrics)
-            training_conversation, att_idx, group_indices, num_interactions = train_data
+            training_conversation, att_idx, num_interactions = train_data
 
             metrics["time_generation (s)"] = time() - time_pre_generation
             metrics["memory_usage_generation (GB)"] = torch.cuda.max_memory_allocated() / 1024**3
@@ -478,26 +473,6 @@ def train_loop(train_llm, opponent_llm, config):
 
             ### prepare batch for training
 
-            # compute groups for GRPO
-            group_indices = torch.tensor(group_indices)
-            unique_groups, counts = torch.unique(group_indices, return_counts=True)
-            # get rid of root conversation & avoid std error in some niche cases
-            unique_groups = unique_groups[counts > 1]
-            group_mask = torch.isin(group_indices, unique_groups)
-            group_indices = group_indices[group_mask]
-            conversation = [conversation[i] for i in range(len(group_mask)) if group_mask[i]]
-            moves = [moves[i] for i in range(len(group_mask)) if group_mask[i]]
-            training_conversation = [training_conversation[i] for i in range(len(group_mask)) if group_mask[i]]
-            att_idx = [att_idx[i] for i in range(len(group_mask)) if group_mask[i]]
-            num_interactions = [num_interactions[i] for i in range(len(group_mask)) if group_mask[i]]
-
-                # this happens when one player doesn't ever play
-                # so it should happen very rarely, only if player-1 makes a format error
-            if len(training_conversation) == 0:
-                print("Empty training conversation")
-                print("This is not normal")
-                continue
-
             # moves -> rewards
             if train_llm_num == 2:
                 moves = [(w[1], w[0]) for w in moves]
@@ -511,45 +486,28 @@ def train_loop(train_llm, opponent_llm, config):
             metrics["lost_by_error (%)"] += sum(1 for w in moves if w[0].is_error())
             metrics["won_by_error (%)"] += sum(1 for w in moves if w[1].is_error() and not w[0].is_error())
 
-            if config.train.method == "grpo":
-                # compute advantages
-                means = {group.item() : rewards[group_indices == group].mean() for group in unique_groups}
-                stds = {group.item() : rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups}
-                group_indices = group_indices.tolist()
-                advantage = torch.tensor([(rewards[i] - means[group_indices[i]]) / stds[group_indices[i]] for i in range(len(rewards))])
-                metrics["average_mean"] = sum(means.values()) / len(means)
-                metrics["average_std"] = sum(stds.values()) / len(stds)
-
-                # multiply by discount factor
-                if config.train.gamma != 1:
-                    discount_factor = torch.full(advantage.shape, config.train.gamma) ** ((torch.tensor(num_interactions)-train_llm_num)//2 - torch.tensor(group_indices))
-                    advantage = (advantage*discount_factor)
-
-            # with the advantages, we can forget everything after the evaluated turn
-            training_conversation = [c[:idx[1]] for c, idx in zip(training_conversation, att_idx)]
-
             # tokenize training_conversation
             tokenized = train_llm.tokenizer(training_conversation, padding=True, truncation=True, return_tensors="pt", return_offsets_mapping=True)
             input = tokenized['input_ids']
             padding = tokenized['attention_mask']
 
-            # att_idx -> attention_mask
+            # att_idx -> list of (start, end) intervals per example
             attention_mask = []
             for idx in range(len(training_conversation)):
                 offsets = tokenized['offset_mapping'][idx].tolist()  # Get the offsets for the current text
-                mask = [not (token_end <= att_idx[idx][0] or token_start >= att_idx[idx][1]) for token_start, token_end in offsets]
-                attention_mask.append(mask)
-            attention_mask = torch.tensor(attention_mask)
+                masks = [ torch.tensor(
+                    [not (token_end <= interval[0] or token_start >= interval[1]) for token_start, token_end in offsets]
+                ) for interval in att_idx[idx]]
+                attention_mask.append(torch.any(torch.stack((masks)), dim=0))
+            attention_mask = torch.stack(attention_mask)
             
-            if config.train.method == "grpo":
-                curr_batch = (input, padding, attention_mask, advantage)
-            else:
-                curr_batch = (input, padding, attention_mask, rewards, group_indices)
-            buffer.append(curr_batch)
+            winning_samples = rewards == 2.
 
-            # train current batch
+            curr_batch = (input[winning_samples], padding[winning_samples], attention_mask[winning_samples])
             time_pre_minibatches = time()
-            batch_step(train_llm, ref_llm, optimizer, curr_batch, config, metrics, "")
+            if winning_samples.any():
+                buffer.append(curr_batch)
+                batch_step(train_llm, ref_llm, optimizer, curr_batch, config, metrics, "")
 
             metrics["num_samples"] += len(input)
             metrics["memory_usage_minibatch (GB)"] = torch.cuda.max_memory_allocated() / 1024**3
