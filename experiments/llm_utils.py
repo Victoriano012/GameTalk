@@ -53,12 +53,6 @@ class LLM(nn.Module):
         output = output[:, inputs['input_ids'].shape[-1]:]
         return self.tokenizer.batch_decode(output, skip_special_tokens=True)
     
-    # def get_log_probs(self, input, attention_mask=None):
-    #     output = self.model(input, attention_mask=attention_mask)
-    #     log_prob = output.logits.log_softmax(dim=-1)
-    #     log_prob = log_prob[torch.arange(input.shape[0]).unsqueeze(1), torch.arange(input.shape[1]), input].reshape(input.shape)
-    #     return log_prob
-    
     # Reference: https://www.tylerromero.com/posts/2025-02-selective-log-softmax/
     def get_log_probs(self, input, attention_mask=None):
         logits = self.model(input, attention_mask=attention_mask).logits

@@ -9,3 +9,6 @@ train:
 
 eval:
   num_episodes: 2
+  
+wandb:
+  tags: ["test"]

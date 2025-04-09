@@ -39,7 +39,7 @@ train:
   opponent_top_p : 0.9
   trained_top_p : 0.5
   
-  method : "GRPO" # "DPO" / "GRPO"
+  method : "grpo" # "dpo" / "grpo"
   dpo:
     variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
     average_log_prob : False

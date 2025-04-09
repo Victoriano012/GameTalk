@@ -456,20 +456,21 @@ def dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metric
     for g in unique_groups:
         groups[g] = (input[group_indices == g], padding[group_indices == g], attention_mask[group_indices == g], reward[group_indices == g])
 
-    metrics["skipped_groups"] = 0
+    metrics[metrics_prefix+"skipped_groups"] = 0
 
-    unique_groups = unique_groups[torch.randperm(unique_groups.size()[0])]
+    trainable_parameters = [p for p in train_llm.parameters() if p.requires_grad]
+
     for input_group, padding_group, attention_mask_group, reward_group in groups.values():
 
         # compute log_probs
-        mini_batches = [(input_group[i:i+mini_size], padding_group[i:i+mini_size]) for i in range(0, len(input_group), mini_size)]
+        mini_batches = [(input_group[i:i+mini_size], padding_group[i:i+mini_size], attention_mask_group[i:i+mini_size]) for i in range(0, len(input_group), mini_size)]
 
         train_llm.to('cpu')
         ref_llm.to('cuda')
         ref_log_probs = []
         with torch.no_grad():
             for mini_batch in mini_batches:
-                input_batch, padding_batch = mini_batch
+                input_batch, padding_batch, _ = mini_batch
                 input_batch = input_batch.clone().to('cuda')
                 padding_batch = padding_batch.clone().to('cuda')
                 ref_log_probs.append(
@@ -478,33 +479,48 @@ def dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metric
 
         ref_llm.to('cpu')
         train_llm.to('cuda')
-        log_probs = []
-        for mini_batch in mini_batches:
-            input_batch, padding_batch = mini_batch
+
+        dpo_weights = []
+        dpo_grads = []
+        
+        for idx, mini_batch in enumerate(mini_batches):
+            input_batch, padding_batch, attention_mask_batch = mini_batch
             input_batch = input_batch.clone().to('cuda')
             padding_batch = padding_batch.clone().to('cuda')
-            log_probs.append(
-                train_llm.get_log_probs(input_batch, padding_batch)
-            )
-        
-        attention_mask_group = attention_mask_group.to('cuda')
-        ref_log_probs = torch.cat(ref_log_probs).to('cuda')
-        log_probs = torch.cat(log_probs).to('cuda')
-        if config.train.dpo.average_log_prob == True:
-            ref_log_probs = masked_mean(ref_log_probs, attention_mask_group)
-            log_probs = masked_mean(log_probs, attention_mask_group)
-        else:
-            ref_log_probs = masked_sum(ref_log_probs, attention_mask_group)
-            log_probs = masked_sum(log_probs, attention_mask_group)
-        dpo_weight = torch.exp(config.train.kl_coef * (ref_log_probs - log_probs))
+            attention_mask_batch = attention_mask_batch.clone().to('cuda')
+            ref_log_prob = ref_log_probs[idx].to('cuda')
 
+            log_prob = train_llm.get_log_probs(input_batch, padding_batch)
+
+            if config.train.dpo.average_log_prob == True:
+                ref_log_prob = masked_mean(ref_log_prob, attention_mask_batch)
+                log_prob = masked_mean(log_prob, attention_mask_batch)
+            else:
+                ref_log_prob = masked_sum(ref_log_prob, attention_mask_batch)
+                log_prob = masked_sum(log_prob, attention_mask_batch)
+            dpo_weight = torch.exp(config.train.kl_coef * (ref_log_prob - log_prob))
+
+            # Store gradients for each parameter (to free memory of the computation graph)
+            for w in dpo_weight:
+                optimizer.zero_grad()
+
+                w.backward()
+                dpo_weights.append(w.detach())
+
+                grads_i = [p.grad.detach().clone() for p in trainable_parameters]
+
+                dpo_grads.append(grads_i)
         optimizer.zero_grad()
+
+        # Compute loss
+        dpo_weights = torch.stack(dpo_weights).to('cuda')
+        dpo_weights.requires_grad = True
 
         unique_rewards = torch.sort(reward_group.unique(), descending=True).values
         if len(unique_rewards) <= 1:
-            metrics["skipped_groups"] += 1
+            metrics[metrics_prefix+"skipped_groups"] += 1
             continue
-        dpo_weight_groupped_by_reward = [dpo_weight[reward_group == r] for r in unique_rewards]
+        dpo_weight_groupped_by_reward = [dpo_weights[reward_group == r] for r in unique_rewards]
 
         if config.train.dpo.variant == 'all_pairs':
             pair_log_probs = []
@@ -524,15 +540,18 @@ def dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metric
         elif config.train.dpo.variant == 'with_ties':
             loss = - tied_plackett_luce_logprob(dpo_weight_groupped_by_reward)
 
+        # Compute gradients with chain rule
         loss.backward()
+        for i, p in enumerate(trainable_parameters):
+            p.grad = sum(w_grad * g[i] for w_grad, g in zip(dpo_weights.grad, dpo_grads))
         optimizer.step()
-    
+
 
 
 def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix):
-    if config.train.method == "GRPO":
+    if config.train.method == "grpo":
         grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
-    elif config.train.method == "DPO":
+    elif config.train.method == "dpo":
         dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
     else:
         raise Exception("Your train method is not allowed, it should be GRPO or DPO")
@@ -642,7 +661,7 @@ def train_loop(train_llm, opponent_llm, config):
             metrics["lost_by_error (%)"] += sum(1 for w in moves if w[0].is_error())
             metrics["won_by_error (%)"] += sum(1 for w in moves if w[1].is_error() and not w[0].is_error())
 
-            if config.train.method == "GRPO":
+            if config.train.method == "grpo":
                 # compute advantages
                 means = {group.item() : rewards[group_indices == group].mean() for group in unique_groups}
                 stds = {group.item() : rewards[group_indices == group].std()+config.train.grpo_std_eps for group in unique_groups}
@@ -672,7 +691,7 @@ def train_loop(train_llm, opponent_llm, config):
                 attention_mask.append(mask)
             attention_mask = torch.tensor(attention_mask)
             
-            if config.train.method == "GRPO":
+            if config.train.method == "grpo":
                 curr_batch = (input, padding, attention_mask, advantage)
             else:
                 curr_batch = (input, padding, attention_mask, rewards, group_indices)
