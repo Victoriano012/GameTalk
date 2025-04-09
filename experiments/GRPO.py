@@ -54,9 +54,9 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         play = [None],
         generation_config = {
             "max_new_tokens" : config.train.max_new_tokens,
-            "do_sample" : True,
             "top_p" : config.train.trained_top_p if train_llm_num == 1 else config.train.opponent_top_p,
-            "temperature" : config.train.trained_temperature if train_llm_num == 1 else config.train.opponent_temperature
+            "temperature" : config.train.trained_temperature if train_llm_num == 1 else config.train.opponent_temperature,
+            "do_sample" : (config.train.trained_temperature > 0) if train_llm_num == 1 else (config.train.opponent_temperature > 0)
         }
     )
     player_2 = SimpleNamespace(
@@ -67,9 +67,9 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         play = [None],
         generation_config = {
             "max_new_tokens" : config.train.max_new_tokens,
-            "do_sample" : True,
             "top_p" : config.train.trained_top_p if train_llm_num == 2 else config.train.opponent_top_p,
-            "temperature" : config.train.trained_temperature if train_llm_num == 2 else config.train.opponent_temperature
+            "temperature" : config.train.trained_temperature if train_llm_num == 2 else config.train.opponent_temperature,
+            "do_sample" : (config.train.trained_temperature > 0) if train_llm_num == 2 else (config.train.opponent_temperature > 0)
         }
     )
 
@@ -213,9 +213,9 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
         play = [None for _ in range(config.eval.num_episodes)],
         generation_config = {
             "max_new_tokens" : config.train.max_new_tokens,
-            "do_sample" : True,
             "top_p" : config.eval.trained_top_p if eval_llm_num == 1 else config.eval.opponent_top_p,
-            "temperature" : config.eval.trained_temperature if eval_llm_num == 1 else config.eval.opponent_temperature
+            "temperature" : config.eval.trained_temperature if eval_llm_num == 1 else config.eval.opponent_temperature,
+            "do_sample" : (config.eval.trained_temperature > 0) if eval_llm_num == 1 else (config.eval.opponent_temperature > 0)
         }
     )
     player_2 = SimpleNamespace(
@@ -226,9 +226,9 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
         play = [None for _ in range(config.eval.num_episodes)],
         generation_config = {
             "max_new_tokens" : config.train.max_new_tokens,
-            "do_sample" : True,
             "top_p" : config.eval.trained_top_p if eval_llm_num == 2 else config.eval.opponent_top_p,
-            "temperature" : config.eval.trained_temperature if eval_llm_num == 2 else config.eval.opponent_temperature
+            "temperature" : config.eval.trained_temperature if eval_llm_num == 2 else config.eval.opponent_temperature,
+            "do_sample" : (config.eval.trained_temperature > 0) if eval_llm_num == 2 else (config.eval.opponent_temperature > 0)
         }
     )
 
@@ -409,6 +409,8 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
     if config.train.gradient_accumulation:
         optimizer.step()
 
+
+
 def plackett_luce_logprob(v):
     if isinstance(v, list):
         v = torch.stack(v)
@@ -428,10 +430,14 @@ def tied_plackett_luce_logprob(sets):
     logprob = torch.tensor(0.0, dtype=sets[0].dtype, device=sets[0].device)
 
     for tie_group in sets:
+        if (tie_group <= 0.).any():
+            print(tie_group)
         logprob += torch.log(tie_group).mean()
 
     for set in itertools.accumulate(sets[::-1], lambda acc, x: torch.cat([acc,x])):
         for subset in all_subsets(set):
+            if (subset <= 0.).any():
+                print(subset)
             logprob -= torch.log(subset).mean()
 
     return logprob
