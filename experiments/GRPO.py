@@ -49,7 +49,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     player_1 = SimpleNamespace(
         llm = llm_1,
         name = config.game.player_1_name,
-        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>"],
+        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<play>"],
         train = train_llm_num == 1,
         play = [None],
         generation_config = {
@@ -111,7 +111,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
             try:
                 parsed_action = parse_last(action)
             except AssertionError as e:
-                think_tag = "<think>"
+                think_tag = "<play>"
                 player_1.query[idx] += action[len(think_tag):]
                 conversation[idx] += player_1.name + " did a formating error, their response could not be parsed.\n"
 
@@ -138,7 +138,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
 
             ### add last action to queries
             # player_1 query
-            player_1.query[idx] += parsed_action['think'] + "</think>\n"
+            # player_1.query[idx] += parsed_action['think'] + "</think>\n"
             if 'talk' in parsed_action:
                 player_1.query[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
             if 'play' in parsed_action:
@@ -155,10 +155,10 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
                 if 'play' in parsed_action:
                     with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
                         player_2.query[idx] += file.read().format(other_name = player_1.name)
-            player_2.query[idx] += player_2.name + ": <think>" 
+            player_2.query[idx] += player_2.name + ": <play>" 
 
             # conversation
-            conversation[idx] += player_1.name + ":\n    <think>" + parsed_action['think'] + "</think>\n"
+            # conversation[idx] += player_1.name + ":\n    <think>" + parsed_action['think'] + "</think>\n"
             if 'talk' in parsed_action:
                 conversation[idx] += "    <talk>" + parsed_action['talk'] + "</talk> \n"
             if 'play' in parsed_action:
@@ -723,15 +723,15 @@ def train_loop(train_llm, opponent_llm, config):
         metrics["replay_|kl|"] /= config.train.replay_batches_per_epoch
         metrics["replay_|total_loss|"] /= config.train.replay_batches_per_epoch
         
-        # eval if needed
-        if config.eval.eval_every is not None and epoch % config.eval.eval_every == 0:
-            ref_llm.to('cpu')
-            opponent_llm.to('cuda')
-            if config.game.trained_player in [1, "both"]:
-                eval_batch(train_llm, opponent_llm, 1, config, metrics, "player1_" if config.game.trained_player == "both" else "")
-            if config.game.trained_player in [2, "both"]:
-                eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.game.trained_player == "both" else "")
-            opponent_llm.to('cpu')
+        # # eval if needed
+        # if config.eval.eval_every is not None and epoch % config.eval.eval_every == 0:
+        #     ref_llm.to('cpu')
+        #     opponent_llm.to('cuda')
+        #     if config.game.trained_player in [1, "both"]:
+        #         eval_batch(train_llm, opponent_llm, 1, config, metrics, "player1_" if config.game.trained_player == "both" else "")
+        #     if config.game.trained_player in [2, "both"]:
+        #         eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.game.trained_player == "both" else "")
+        #     opponent_llm.to('cpu')
 
         # log metrics
         for metric in config.normalized_metrics:
