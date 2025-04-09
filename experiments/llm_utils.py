@@ -62,12 +62,9 @@ class LLM(nn.Module):
         return token_logprobs
 
 
-default_stopping_text = ["</talk>", "</play>"]
-# default_stopping_text = ["</play>"]
-
 # stopping criteria to force generation stopping after each player's turn
-class one_player_generation(StoppingCriteria):
-    def __init__(self, tokenizer, stopping_text = default_stopping_text):
+class one_turn_stop_criteria(StoppingCriteria):
+    def __init__(self, tokenizer, stopping_text):
         super().__init__()
         self.tokenizer = tokenizer
         self.stopping_text = stopping_text
@@ -86,6 +83,4 @@ class one_player_generation(StoppingCriteria):
             ))
 
         return torch.tensor(stop).to('cuda')
-
-one_turn_stop_criteria = lambda tokenizer: StoppingCriteriaList([one_player_generation(tokenizer = tokenizer)])
 

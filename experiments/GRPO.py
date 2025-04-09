@@ -1,18 +1,17 @@
 import torch.optim as optim
 import torch
 
+from transformers import StoppingCriteriaList
 from omegaconf import OmegaConf
-import random
 from types import SimpleNamespace
-from copy import deepcopy
 from time import time
 import itertools
+import random
 import wandb
 import hydra
 import sys
 import os
 import re
-import gc
 
 from game_utils import masked_call, one_turn, parse_last, estimate_strategy, kl_div
 from llm_utils import LLM, one_turn_stop_criteria
@@ -39,7 +38,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         ]
     """
 
-    Game = get_game(config.game_name)
+    Game = get_game(config.game.name)
     
     swapped = False
     conversation = [""]
@@ -49,8 +48,8 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     
     player_1 = SimpleNamespace(
         llm = llm_1,
-        name = config.player_1_name,
-        query = [initial_prompt.format(my_name=config.player_1_name, other_name=config.player_2_name) + "<think>"],
+        name = config.game.player_1_name,
+        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>"],
         train = train_llm_num == 1,
         play = [None],
         generation_config = {
@@ -62,8 +61,8 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     )
     player_2 = SimpleNamespace(
         llm = llm_2,
-        name = config.player_2_name,
-        query = [initial_prompt.format(my_name=config.player_2_name, other_name=config.player_1_name)],
+        name = config.game.player_2_name,
+        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name)],
         train = train_llm_num == 2,
         play = [None],
         generation_config = {
@@ -152,7 +151,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
             # player_2 query
             if 'talk' in parsed_action:
                 player_2.query[idx] += parsed_action['talk'].strip() + "\n"
-            if not config.one_turn:
+            if not config.game.one_turn:
                 if 'play' in parsed_action:
                     with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
                         player_2.query[idx] += file.read().format(other_name = player_1.name)
@@ -198,7 +197,7 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     word_based_count = 0
     internal_state_count = 0
 
-    Game = get_game(config.game_name)
+    Game = get_game(config.game.name)
     
     swapped = False
     conversation = ["" for _ in range(config.eval.num_episodes)]
@@ -208,8 +207,8 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     
     player_1 = SimpleNamespace(
         llm = llm_1,
-        name = config.player_1_name,
-        query = [initial_prompt.format(my_name=config.player_1_name, other_name=config.player_2_name) + "<think>" for _ in range(config.eval.num_episodes)],
+        name = config.game.player_1_name,
+        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>" for _ in range(config.eval.num_episodes)],
         eval = eval_llm_num == 1,
         play = [None for _ in range(config.eval.num_episodes)],
         generation_config = {
@@ -221,8 +220,8 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     )
     player_2 = SimpleNamespace(
         llm = llm_2,
-        name = config.player_2_name,
-        query = [initial_prompt.format(my_name=config.player_2_name, other_name=config.player_1_name) for _ in range(config.eval.num_episodes)],
+        name = config.game.player_2_name,
+        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name) for _ in range(config.eval.num_episodes)],
         eval = eval_llm_num == 2,
         play = [None for _ in range(config.eval.num_episodes)],
         generation_config = {
@@ -554,7 +553,7 @@ def batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_pr
     elif config.train.method == "dpo":
         dpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metrics_prefix)
     else:
-        raise Exception("Your train method is not allowed, it should be GRPO or DPO")
+        raise Exception('Your train method is not allowed, it should be "grpo" or "dpo"')
 
 
 def train_loop(train_llm, opponent_llm, config):
@@ -569,10 +568,11 @@ def train_loop(train_llm, opponent_llm, config):
     metrics_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.metrics}", "w")
     print(OmegaConf.to_container(config, resolve=True), file=metrics_file, flush=True)
 
-    Game = get_game(config.game_name)
+    Game = get_game(config.game.name)
     buffer = []
 
-    ref_llm = LLM(config.train_llm_name, stopping_criteria=one_turn_stop_criteria, lora_config=config.lora, unsloth=config.unsloth)
+    stop_criteria = lambda tokenizer: StoppingCriteriaList([one_turn_stop_criteria(tokenizer = tokenizer, stopping_text = config.game.stopping_text)])
+    ref_llm = LLM(config.llms.train_llm_name, stopping_criteria=stop_criteria, lora_config=config.lora, unsloth=config.llms.unsloth)
     ref_llm.eval()
     opponent_llm.eval()
 
@@ -596,7 +596,7 @@ def train_loop(train_llm, opponent_llm, config):
 
             ### compute the batch
 
-            if config.trained_player == 1 or (config.trained_player == "both" and batch_idx % 2 == 1):
+            if config.game.trained_player == 1 or (config.game.trained_player == "both" and batch_idx % 2 == 1):
                 llm_1, llm_2 = train_llm, opponent_llm
                 train_llm_num = 1
             else:
@@ -721,10 +721,10 @@ def train_loop(train_llm, opponent_llm, config):
         if config.eval.eval_every is not None and epoch % config.eval.eval_every == 0:
             ref_llm.to('cpu')
             opponent_llm.to('cuda')
-            if config.trained_player in [1, "both"]:
-                eval_batch(train_llm, opponent_llm, 1, config, metrics, "player1_" if config.trained_player == "both" else "")
-            if config.trained_player in [2, "both"]:
-                eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.trained_player == "both" else "")
+            if config.game.trained_player in [1, "both"]:
+                eval_batch(train_llm, opponent_llm, 1, config, metrics, "player1_" if config.game.trained_player == "both" else "")
+            if config.game.trained_player in [2, "both"]:
+                eval_batch(opponent_llm, train_llm, 2, config, metrics, "player2_" if config.game.trained_player == "both" else "")
             opponent_llm.to('cpu')
 
         # log metrics
@@ -751,8 +751,9 @@ def __main__(config):
     sys.stdout = general_file
     sys.stderr = general_file
 
-    train_llm = LLM(config.train_llm_name, stopping_criteria=one_turn_stop_criteria, lora_config=config.lora, unsloth=config.unsloth).to('cuda')
-    opponent_llm = LLM(config.opponent_llm_name, stopping_criteria=one_turn_stop_criteria, unsloth=config.unsloth)
+    stop_criteria = lambda tokenizer: StoppingCriteriaList([one_turn_stop_criteria(tokenizer = tokenizer, stopping_text = config.game.stopping_text)])
+    train_llm = LLM(config.llms.train_llm_name, stopping_criteria=stop_criteria, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
+    opponent_llm = LLM(config.llms.opponent_llm_name, stopping_criteria=stop_criteria, unsloth=config.llms.unsloth)
 
     print("\nStart training")
     train_loop(train_llm, opponent_llm, config)

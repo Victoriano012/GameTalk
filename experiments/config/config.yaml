@@ -1,15 +1,18 @@
 
-game_name: "rock-paper-scissors"
 
-player_1_name: "Player-1"
-player_2_name: "Player-2"
-trained_player: 2   # 1 or 2 or "both"
+llms:
+  train_llm_name: "llama-3B"
+  opponent_llm_name: ${llms.train_llm_name}
+  unsloth : False
 
-train_llm_name: "llama-3B"
-opponent_llm_name: ${train_llm_name}
-unsloth : False
+game:
+  name: "rock-paper-scissors"
+  stopping_text: ["</talk>", "</play>"]
+  one_turn : False
 
-one_turn : False
+  player_1_name: "Player-1"
+  player_2_name: "Player-2"
+  trained_player: 2   # 1 or 2 or "both"
 
 train:
   lr: 1e-5
