@@ -23,7 +23,7 @@ train:
   gradient_accumulation: True
   
   max_interactions: 5
-  max_new_tokens: 200
+  max_new_tokens: 300
 
   gamma : 1
   kl_coef: 0.1

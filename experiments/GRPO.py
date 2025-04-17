@@ -1,7 +1,6 @@
 import torch.optim as optim
 import torch
 
-from transformers import StoppingCriteriaList
 from omegaconf import OmegaConf
 from types import SimpleNamespace
 from time import time
@@ -13,8 +12,8 @@ import sys
 import os
 import re
 
-from game_utils import masked_call, one_turn, parse_last, estimate_strategy, kl_div
-from llm_utils import LLM, one_turn_stop_criteria
+from game_utils import masked_call, parse_last, estimate_strategy, kl_div
+from llm_utils import LLM
 from games import get_game
 
 
@@ -46,31 +45,33 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
     with open(config.prompts.folder + config.prompts.initial, "r") as file:
         initial_prompt = file.read()
     
+    gen_conf_trained = {
+        "max_new_tokens" : config.train.max_new_tokens,
+        "top_p" : config.train.trained_top_p,
+        "temperature" : config.train.trained_temperature,
+        "do_sample" : config.train.trained_temperature > 0
+    }
+    gen_conf_opponent = {
+        "max_new_tokens" : config.train.max_new_tokens,
+        "top_p" : config.train.opponent_top_p,
+        "temperature" : config.train.opponent_temperature,
+        "do_sample" : config.train.opponent_temperature > 0
+    }
     player_1 = SimpleNamespace(
         llm = llm_1,
         name = config.game.player_1_name,
-        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>"],
+        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<|start_header_id|>assistant<|end_header_id|> <think>"],
         train = train_llm_num == 1,
         play = [None],
-        generation_config = {
-            "max_new_tokens" : config.train.max_new_tokens,
-            "top_p" : config.train.trained_top_p if train_llm_num == 1 else config.train.opponent_top_p,
-            "temperature" : config.train.trained_temperature if train_llm_num == 1 else config.train.opponent_temperature,
-            "do_sample" : (config.train.trained_temperature > 0) if train_llm_num == 1 else (config.train.opponent_temperature > 0)
-        }
+        generation_config = gen_conf_trained if train_llm_num == 1 else gen_conf_opponent
     )
     player_2 = SimpleNamespace(
         llm = llm_2,
         name = config.game.player_2_name,
-        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name)],
+        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name) + "<|start_header_id|>user<|end_header_id|>"],
         train = train_llm_num == 2,
         play = [None],
-        generation_config = {
-            "max_new_tokens" : config.train.max_new_tokens,
-            "top_p" : config.train.trained_top_p if train_llm_num == 2 else config.train.opponent_top_p,
-            "temperature" : config.train.trained_temperature if train_llm_num == 2 else config.train.opponent_temperature,
-            "do_sample" : (config.train.trained_temperature > 0) if train_llm_num == 2 else (config.train.opponent_temperature > 0)
-        }
+        generation_config = gen_conf_trained if train_llm_num == 2 else gen_conf_opponent
     )
 
     must_play = [False]
@@ -100,19 +101,18 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
 
         # generate actions
         actions = masked_call(
-                    lambda x: one_turn(player_1.llm, x, **player_1.generation_config),
+                    lambda x: player_1.llm.generate(x, **player_1.generation_config),
                     player_1.query,
                     [(x == -1) for x in num_interactions]
                 )
         for idx, action in enumerate(actions):
             if action == "":
                 continue
-
+            
             try:
-                parsed_action = parse_last(action)
+                parsed_action = parse_last("<think>" + action)
             except AssertionError as e:
-                think_tag = "<think>"
-                player_1.query[idx] += action[len(think_tag):]
+                player_1.query[idx] += action
                 conversation[idx] += player_1.name + " did a formating error, their response could not be parsed.\n"
 
                 if isinstance(attention_indices[idx], int):
@@ -143,19 +143,20 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
                 player_1.query[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
             if 'play' in parsed_action:
                 player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
-            
+            player_1.query[idx] += "<|eot_id|>"
+
             if isinstance(attention_indices[idx], int):
                 attention_indices[idx] = (attention_indices[idx], len(player_1.query[idx]))
-            player_1.query[idx] += player_2.name + ": " 
+            player_1.query[idx] += "<|start_header_id|>user<|end_header_id|>" 
             
             # player_2 query
             if 'talk' in parsed_action:
                 player_2.query[idx] += parsed_action['talk'].strip() + "\n"
-            if not config.game.one_turn:
-                if 'play' in parsed_action:
-                    with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
-                        player_2.query[idx] += file.read().format(other_name = player_1.name)
-            player_2.query[idx] += player_2.name + ": <think>" 
+            player_2.query[idx] += "<|eot_id|>"
+            if 'play' in parsed_action and not config.game.one_turn:
+                with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
+                    player_2.query[idx] += file.read().format(other_name = "user")
+            player_2.query[idx] += "<|start_header_id|>assistant<|end_header_id|> <think>" 
 
             # conversation
             conversation[idx] += player_1.name + ":\n    <think>" + parsed_action['think'] + "</think>\n"
@@ -205,31 +206,33 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
     with open(config.prompts.folder + config.prompts.initial, "r") as file:
         initial_prompt = file.read()
     
+    gen_conf_trained = {
+        "max_new_tokens" : config.train.max_new_tokens,
+        "top_p" : config.eval.trained_top_p,
+        "temperature" : config.eval.trained_temperature,
+        "do_sample" : config.eval.trained_temperature > 0
+    }
+    gen_conf_opponent = {
+        "max_new_tokens" : config.train.max_new_tokens,
+        "top_p" : config.eval.opponent_top_p,
+        "temperature" : config.eval.opponent_temperature,
+        "do_sample" : config.eval.opponent_temperature > 0
+    }
     player_1 = SimpleNamespace(
         llm = llm_1,
         name = config.game.player_1_name,
-        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<think>" for _ in range(config.eval.num_episodes)],
+        query = [initial_prompt.format(my_name="assistant", other_name="user") + "<|start_header_id|>assistant<|end_header_id|> <think>" for _ in range(config.eval.num_episodes)],
         eval = eval_llm_num == 1,
         play = [None for _ in range(config.eval.num_episodes)],
-        generation_config = {
-            "max_new_tokens" : config.train.max_new_tokens,
-            "top_p" : config.eval.trained_top_p if eval_llm_num == 1 else config.eval.opponent_top_p,
-            "temperature" : config.eval.trained_temperature if eval_llm_num == 1 else config.eval.opponent_temperature,
-            "do_sample" : (config.eval.trained_temperature > 0) if eval_llm_num == 1 else (config.eval.opponent_temperature > 0)
-        }
+        generation_config = gen_conf_trained if eval_llm_num == 1 else gen_conf_opponent
     )
     player_2 = SimpleNamespace(
         llm = llm_2,
         name = config.game.player_2_name,
-        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name) for _ in range(config.eval.num_episodes)],
+        query = [initial_prompt.format(my_name="assistant", other_name="user") + "<|start_header_id|>user<|end_header_id|>" for _ in range(config.eval.num_episodes)],
         eval = eval_llm_num == 2,
         play = [None for _ in range(config.eval.num_episodes)],
-        generation_config = {
-            "max_new_tokens" : config.train.max_new_tokens,
-            "top_p" : config.eval.trained_top_p if eval_llm_num == 2 else config.eval.opponent_top_p,
-            "temperature" : config.eval.trained_temperature if eval_llm_num == 2 else config.eval.opponent_temperature,
-            "do_sample" : (config.eval.trained_temperature > 0) if eval_llm_num == 2 else (config.eval.opponent_temperature > 0)
-        }
+        generation_config = gen_conf_trained if eval_llm_num == 2 else gen_conf_opponent
     )
 
     must_play = [False for _ in range(config.eval.num_episodes)]
@@ -247,7 +250,7 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
         if player_1.eval:
             ### internal state evaluation
             player_1_estimation = masked_call(
-                lambda q : estimate_strategy(player_1.llm, q, Game, other_name=player_2.name),
+                lambda q : estimate_strategy(player_1.llm, q, Game, other_name="user"),
                 player_1.query,
                 [not x for x in game_over],
                 unpack = False
@@ -268,7 +271,7 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
 
         # generate actions
         actions = masked_call(
-                    lambda x: one_turn(player_1.llm, x, **player_1.generation_config),
+                    lambda x: player_1.llm.generate(x, **player_1.generation_config),
                     player_1.query,
                     [not x for x in game_over]
                 )
@@ -277,7 +280,7 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
                 continue
 
             try:
-                parsed_action = parse_last(action)
+                parsed_action = parse_last("<think>" + action)
             except AssertionError as e:
                 errors[idx] = e
                 player_1.play[idx] = player_2.play[idx] = Game("error")
@@ -296,17 +299,19 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
                 player_1.query[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
             if 'play' in parsed_action:
                 player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
+            player_1.query[idx] += "<|eot_id|>"
             
-            player_1.query[idx] += player_2.name + ": " 
+            player_1.query[idx] += "<|start_header_id|>user<|end_header_id|>" 
             
             # player_2 query
             if 'talk' in parsed_action:
                 player_2.query[idx] += parsed_action['talk'].strip() + "\n"
+            player_2.query[idx] += "<|eot_id|>"
             if 'play' in parsed_action:
                 with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
-                    player_2.query[idx] += file.read().format(other_name = player_1.name)
+                    player_2.query[idx] += file.read().format(other_name = "user")
                 must_play[idx] = True
-            player_2.query[idx] += player_2.name + ": <think>" 
+            player_2.query[idx] += "<|start_header_id|>assistant<|end_header_id|> <think>"
 
             # conversation
             conversation[idx] += player_1.name + ":\n    <think>" + parsed_action['think'] + "</think>\n"
@@ -577,8 +582,7 @@ def train_loop(train_llm, opponent_llm, config):
     Game = get_game(config.game.name)
     buffer = []
 
-    stop_criteria = lambda tokenizer: StoppingCriteriaList([one_turn_stop_criteria(tokenizer = tokenizer, stopping_text = config.game.stopping_text)])
-    ref_llm = LLM(config.llms.train_llm_name, stopping_criteria=stop_criteria, lora_config=config.lora, unsloth=config.llms.unsloth)
+    ref_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth)
     ref_llm.eval()
     opponent_llm.eval()
 
@@ -757,9 +761,8 @@ def __main__(config):
     sys.stdout = general_file
     sys.stderr = general_file
 
-    stop_criteria = lambda tokenizer: StoppingCriteriaList([one_turn_stop_criteria(tokenizer = tokenizer, stopping_text = config.game.stopping_text)])
-    train_llm = LLM(config.llms.train_llm_name, stopping_criteria=stop_criteria, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
-    opponent_llm = LLM(config.llms.opponent_llm_name, stopping_criteria=stop_criteria, unsloth=config.llms.unsloth)
+    train_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
+    opponent_llm = LLM(config.llms.opponent_llm_name, unsloth=config.llms.unsloth)
 
     print("\nStart training")
     train_loop(train_llm, opponent_llm, config)

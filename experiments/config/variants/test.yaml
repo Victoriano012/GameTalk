@@ -11,7 +11,7 @@ eval:
   num_episodes: 2
 
 logs:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/one_turn/tests/"
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/tests/"
   
 wandb:
   tags: ["test"]

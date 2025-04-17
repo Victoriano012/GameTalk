@@ -1,5 +1,5 @@
 # from unsloth import FastLanguageModel
-from transformers import AutoTokenizer, AutoModelForCausalLM, StoppingCriteriaList, StoppingCriteria
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import get_peft_model, LoraConfig
 import torch.nn as nn
 import torch
@@ -21,9 +21,8 @@ def get_actual_llm_name(llm_name, unsloth=False):
 
 
 class LLM(nn.Module):
-    def __init__(self, llm_name, stopping_criteria=None, lora_config=None, unsloth=False):
+    def __init__(self, llm_name, lora_config=None, unsloth=False):
         super().__init__()
-        self.stopping_criteria = stopping_criteria
         llm_name = get_actual_llm_name(llm_name, unsloth)
 
         if unsloth:
@@ -46,7 +45,6 @@ class LLM(nn.Module):
         inputs = self.tokenizer(prompt,padding=True,truncation=True, return_tensors="pt").to('cuda')
         output = self.model.generate(
             **inputs,
-            stopping_criteria=self.stopping_criteria(self.tokenizer) if self.stopping_criteria is not None else None,
             pad_token_id=128009, # llm.tokenizer.eos_token
             **kwargs
         )
@@ -60,27 +58,4 @@ class LLM(nn.Module):
         token_logits = torch.gather(logits, dim=-1, index=input.unsqueeze(-1)).squeeze(-1)
         token_logprobs = token_logits - logsumexp_values
         return token_logprobs
-
-
-# stopping criteria to force generation stopping after each player's turn
-class one_turn_stop_criteria(StoppingCriteria):
-    def __init__(self, tokenizer, stopping_text):
-        super().__init__()
-        self.tokenizer = tokenizer
-        self.stopping_text = stopping_text
-        self.text = None
-
-    def __call__(self, input_ids, scores):
-        if self.text is None:
-            self.text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            return False
-        
-        stop = []
-        for i in range(input_ids.shape[0]):
-            self.text[i] += self.tokenizer.decode(input_ids[i,-1:])
-            stop.append(any(
-                self.text[i].strip().endswith(st) for st in self.stopping_text
-            ))
-
-        return torch.tensor(stop).to('cuda')
 

@@ -1,11 +1,9 @@
-One round of Rock-Paper-Scissors between two LLMs named Player-1 and Player-2.
+<|start_header_id|>system<|end_header_id|> One round of Rock-Paper-Scissors between two LLMs, the user called {other_name} and you, the assistant called {my_name}.
 They both know how to play the game. The rules of the game are as follows: Each player, without knowing what the other will play, decides a move between rock, paper and scissors. The winner is determined by the rules: rock beats scissors, scissors beats paper and paper beats rock. If both players choose the same move, the game is a tie.
 Before deciding their moves, they have a conversation.
 You are {my_name}, and your objective is to win the game as {my_name}.
 In your turn, first think about your strategy and then contribute to the conversation or play.
-The reasoning process and talk are enclosed within <think> </think> and <talk> </talk> tags, respectively, i.e., <think> reasoning process here </think> <talk> converse here </talk>.
-When one player wants to end the conversation, they will play their move. In the turn of {my_name}, the reasoning process and play are also enclosed within <think> </think> and <play> </play> tags, respectively, i.e., <think> reasoning process here </think> <play> rock / paper / scissors </play>
-You will not see what {other_name} thinks or plays. When they play, you will be informed. AFTER THAT YOU MUST THINK AND THEN PLAY YOUR MOVE.
-On the contrary, THE TEXT WILL BE SHOWN WHEN {my_name} THINKS OR PLAYS.
-YOU HAVE A MAXIMUM OF 5 INTERACTIONS.
-Player-1: 
+If you want to talk, enclose the reasoning process and talk within <think> </think> and <talk> </talk> tags, respectively, i.e., <think> reasoning process here </think> <talk> converse here </talk>.
+At any point you may end the conversation by playing your move. To do so, enclose the reasoning process and play within <think> </think> and <play> </play> tags, respectively, i.e., <think> reasoning process here </think> <play> rock / paper / scissors </play>
+If {other_name} plays before you, you will be informed. AFTER THAT YOU MUST THINK AND THEN PLAY YOUR MOVE.
+YOU HAVE A MAXIMUM OF 5 INTERACTIONS. <|eot_id|>

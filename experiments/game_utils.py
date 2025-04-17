@@ -18,35 +18,6 @@ def parse_last(text):
     return parsed_text
 
 
-# generate response + solve format errors from early stopping 
-def one_turn(llm, query, **kwargs):
-    text = llm.generate(query, **kwargs)
-
-    # find unfinished thinks
-    reindex = []
-    query_again = []
-    for i, t in enumerate(text):
-        think_end = t.rfind("</think>")
-        if think_end == -1:
-            reindex.append(i)
-            query_again.append(query[i] + t + " </think> ")
-
-    # complete unfinished thinks
-    if len(reindex) > 0:
-        text_2 = llm.generate(query_again, **kwargs)
-        for idx, t in zip(reindex, text_2):
-            text[idx] += " </think> " + t
-
-    # finish unfinished talks
-    for i, t in enumerate(text):
-        talk_start = t.rfind("<talk>")
-        talk_end = t.rfind("</talk>")
-        if talk_end == -1 and talk_start > -1:
-            text[i] += " </talk>\n"
-    
-    return ["<think>" + t for t in text]
-
-
 def masked_call(cls, queries, mask, unpack=True):
     filtered_inputs = [q for q, m in zip(queries, mask) if m] # Extract elements where mask is 1
     if filtered_inputs == []:
