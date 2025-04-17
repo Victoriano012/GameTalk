@@ -142,7 +142,7 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
             if 'talk' in parsed_action:
                 player_1.query[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
             if 'play' in parsed_action:
-                player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
+                player_1.query[idx] += parsed_action['play'] + "</play> \n"
             
             if isinstance(attention_indices[idx], int):
                 attention_indices[idx] = (attention_indices[idx], len(player_1.query[idx]))
@@ -366,6 +366,7 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
 
     ref_llm.to('cpu')
     train_llm.to('cuda')
+    """printed_strings = {}"""
     for mini_batch, ref_log_prob in zip(mini_batches, ref_log_probs):
         input_batch, padding_batch, attention_mask_batch, advantage_batch = mini_batch
         input_batch = input_batch.clone().to('cuda')
@@ -379,12 +380,14 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
 
         # compute log_prob
         log_prob = train_llm.get_log_probs(input_batch, padding_batch)
+        """log_prob.retain_grad()"""
 
         # compute loss
         ratio = torch.exp(log_prob - ref_log_prob)
         clipped_ratio = torch.clamp(ratio, 1 - config.train.ppo_eps, 1 + config.train.ppo_eps)
 
         advantage_batch = advantage_batch.unsqueeze(1)
+        # grpo_loss = ratio * advantage_batch # for no-ppo
         grpo_loss = torch.min(ratio * advantage_batch, clipped_ratio * advantage_batch)
 
         kl = ref_log_prob - log_prob
@@ -397,6 +400,22 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
 
         # backpropagate
         loss.backward()
+
+        """
+        curr_str = (str(input_batch[:,-10:]), str(train_llm.tokenizer.batch_decode(input_batch[:,-10:])), str(log_prob.grad[:,-10:]))
+        if curr_str not in printed_strings:
+            print(curr_str[0])
+            print(curr_str[1])
+            print(curr_str[2])
+            print('\n'*2)
+            printed_strings[curr_str] = 0
+        printed_strings[curr_str] += 1
+        # print(input_batch)
+        # print(train_llm.tokenizer.batch_decode(input_batch))
+        # print(attention_mask_batch)
+        # print('\n'*5)
+        """
+
         if not config.train.gradient_accumulation:
             optimizer.step()
 
@@ -404,6 +423,8 @@ def grpo_batch_step(train_llm, ref_llm, optimizer, batch, config, metrics, metri
         curr_kl_loss += (kld * attention_mask_batch / attention_mask_batch.sum(dim=-1, keepdim=True) / input_batch.shape[0]).abs().sum().item()
         curr_total_loss += masked_loss.abs().sum().item() / input_batch.shape[0]
     
+    """print({k[1] : v for k, v in printed_strings.items()})"""
+
     metrics[metrics_prefix + "|kl|"] += curr_kl_loss/len(mini_batches)
     metrics[metrics_prefix + "|total_loss|"] += curr_total_loss/len(mini_batches)
     if config.train.gradient_accumulation:
@@ -587,7 +608,7 @@ def train_loop(train_llm, opponent_llm, config):
 
     for epoch in range(config.train.epochs):
         print(f"EPOCH {epoch}", flush=True)
-        if not config.train.const_ref_llm:
+        if (not config.train.const_ref_llm) or (isinstance(config.train.const_ref_llm, int) and epoch % config.train.const_ref_llm == 0):
             if config.lora is None:
                 ref_llm.model.load_state_dict(train_llm.model.state_dict())
             else:

@@ -32,7 +32,7 @@ train:
 
   save_every: 50
 
-  const_ref_llm : True
+  const_ref_llm : True # True -> never change, False -> change every epoch, n -> change every n epochs
 
   replay_batches_per_epoch: 3
   buffer_size_limit: 16
@@ -40,7 +40,7 @@ train:
   opponent_temperature : 0.6
   trained_temperature : 1
   opponent_top_p : 0.9
-  trained_top_p : 0.5
+  trained_top_p : 0.9
   
   method : "grpo" # "dpo" / "grpo"
   dpo:

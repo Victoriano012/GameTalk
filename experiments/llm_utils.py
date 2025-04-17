@@ -73,6 +73,7 @@ class one_turn_stop_criteria(StoppingCriteria):
     def __call__(self, input_ids, scores):
         if self.text is None:
             self.text = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+            """self.tokens = [[[input_ids[i,-1].item()]] for i in range(input_ids.shape[0])]"""
             return False
         
         stop = []
@@ -81,6 +82,15 @@ class one_turn_stop_criteria(StoppingCriteria):
             stop.append(any(
                 self.text[i].strip().endswith(st) for st in self.stopping_text
             ))
+
+            """
+            self.tokens[i].append([input_ids[i,-1].item()])
+            if stop[-1]:
+                print(self.text[i])
+                print(self.tokens[i])
+                print(self.tokenizer.batch_decode(self.tokens[i], skip_special_tokens=True))
+                print()
+            """
 
         return torch.tensor(stop).to('cuda')
 
