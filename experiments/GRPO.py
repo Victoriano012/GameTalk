@@ -2,7 +2,7 @@ import torch.optim as optim
 import torch
 
 from omegaconf import OmegaConf
-from types import SimpleNamespace
+from copy import deepcopy
 from time import time
 import itertools
 import random
@@ -10,41 +10,27 @@ import wandb
 import hydra
 import sys
 import os
-import re
 
-from game_utils import masked_call, parse_last, estimate_strategy, kl_div
+from game_utils import masked_call, internalStateEvaluation
+from conversation_manager import ConversationManager
 from llm_utils import LLM
 from games import get_game
 
 
 
-def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
-    """
-    Creates a batch of episodes where two competing LLMs interact.
-    Args:
-        llm_1, llm_2: The two competing LLMs.
-        train_llm_num (int): 1 to train llm_1, 2 to train llm_2, any other value to not train
-            root conversation will be replicated before trained llm's turn
-
-    Returns:
-        - list of conversations (List[str])
-        - list of winners (List[int])
-        - list of errored conversations (List[bool])
-        - data for training : [
-            list of conversations (List[str]) : from the point of view of trained llm
-            attention indices (List[pair(int,int)]) : start and end indices of interaction to train
-            group indices (List[int]) : groups for GRPO
-        ]
-    """
-
-    Game = get_game(config.game.name)
-    
-    swapped = False
-    conversation = [""]
+def create_batch(llm_1, llm_2, train_llm_num, config):
 
     with open(config.prompts.folder + config.prompts.initial, "r") as file:
         initial_prompt = file.read()
-    
+    with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
+        other_moved_prompt = file.read()
+
+    Game = get_game(config.game.name)
+    group_indices = [-1]
+    conversations = [ConversationManager(
+        initial_prompt, other_moved_prompt, config.game.player_1_name, config.game.player_2_name, Game
+    )]
+
     gen_conf_trained = {
         "max_new_tokens" : config.train.max_new_tokens,
         "top_p" : config.train.trained_top_p,
@@ -57,154 +43,48 @@ def create_batch(llm_1, llm_2, train_llm_num, config, metrics):
         "temperature" : config.train.opponent_temperature,
         "do_sample" : config.train.opponent_temperature > 0
     }
-    player_1 = SimpleNamespace(
-        llm = llm_1,
-        name = config.game.player_1_name,
-        query = [initial_prompt.format(my_name=config.game.player_1_name, other_name=config.game.player_2_name) + "<|start_header_id|>assistant<|end_header_id|> <think>"],
-        train = train_llm_num == 1,
-        play = [None],
-        generation_config = gen_conf_trained if train_llm_num == 1 else gen_conf_opponent
-    )
-    player_2 = SimpleNamespace(
-        llm = llm_2,
-        name = config.game.player_2_name,
-        query = [initial_prompt.format(my_name=config.game.player_2_name, other_name=config.game.player_1_name) + "<|start_header_id|>user<|end_header_id|>"],
-        train = train_llm_num == 2,
-        play = [None],
-        generation_config = gen_conf_trained if train_llm_num == 2 else gen_conf_opponent
-    )
-
-    must_play = [False]
-    group_indices = [-1]
-    attention_indices = [(0,0)]
-    num_interactions = [-1] # unfinished := -1
 
     print("    Creating batch", flush=True)
-    for interaction_idx in range(2*config.train.max_interactions):
+    for interaction_idx in range(1, 1+2*config.train.max_interactions):
 
-        # check if both players played in all games
-        if min(num_interactions) != -1:
+        if all(c.finished() for c in conversations):
             break
 
         # replicate root conversation if it's not over and training
-        if player_1.train and num_interactions[0] == -1:
-            conversation += [conversation[0]]*config.train.group_size
-            player_1.query += [player_1.query[0]]*config.train.group_size
-            player_2.query += [player_2.query[0]]*config.train.group_size
-            player_1.play += [player_1.play[0]]*config.train.group_size
-            player_2.play += [player_2.play[0]]*config.train.group_size
-            
-            must_play += [must_play[0]]*config.train.group_size
+        if interaction_idx%2 == train_llm_num%2 and not conversations[0].finished():
+            conversations += [deepcopy(conversations[0]) for _ in range(config.train.group_size)]
             group_indices += [group_indices[-1] + 1]*config.train.group_size
-            attention_indices += [len(player_1.query[0])]*config.train.group_size # end index added later
-            num_interactions += [-1]*config.train.group_size
 
         # generate actions
+        curr_llm = llm_1 if interaction_idx%2 == 1 else llm_2
+        curr_gen_conf = gen_conf_trained if interaction_idx%2 == train_llm_num%2 else gen_conf_opponent
         actions = masked_call(
-                    lambda x: player_1.llm.generate(x, **player_1.generation_config),
-                    player_1.query,
-                    [(x == -1) for x in num_interactions]
+                    lambda x: curr_llm.generate(x, **curr_gen_conf),
+                    [c.get_query() for c in conversations],
+                    [not c.finished() for c in conversations]
                 )
         for idx, action in enumerate(actions):
-            if action == "":
-                continue
-            
-            try:
-                parsed_action = parse_last("<think>" + action)
-            except AssertionError as e:
-                player_1.query[idx] += action
-                conversation[idx] += player_1.name + " did a formating error, their response could not be parsed.\n"
-
-                if isinstance(attention_indices[idx], int):
-                    attention_indices[idx] = (attention_indices[idx], len(player_1.query[idx]))
-
-                player_1.play[idx] = Game("error")
-                if player_2.play[idx] == None:
-                    player_2.play[idx] = Game.default()
-                num_interactions[idx] = interaction_idx+1
-
-                continue
-
-            # check if player played
-            if 'play' in parsed_action:
-                player_1.play[idx] = Game(parsed_action['play'].lower().strip())
-                must_play[idx] = True
-            elif must_play[idx]:
-                player_1.play[idx] = Game("error")
-
-            if player_1.play[idx] and player_2.play[idx]:
-                num_interactions[idx] = interaction_idx+1
-                metrics["num_interactions"] += interaction_idx+1
-
-            ### add last action to queries
-            # player_1 query
-            player_1.query[idx] += parsed_action['think'] + "</think>\n"
-            if 'talk' in parsed_action:
-                player_1.query[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
-            if 'play' in parsed_action:
-                player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
-            player_1.query[idx] += "<|eot_id|>"
-
-            if isinstance(attention_indices[idx], int):
-                attention_indices[idx] = (attention_indices[idx], len(player_1.query[idx]))
-            player_1.query[idx] += "<|start_header_id|>user<|end_header_id|>" 
-            
-            # player_2 query
-            if 'talk' in parsed_action:
-                player_2.query[idx] += parsed_action['talk'].strip() + "\n"
-            player_2.query[idx] += "<|eot_id|>"
-            if 'play' in parsed_action and not config.game.one_turn:
-                with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
-                    player_2.query[idx] += file.read().format(other_name = "user")
-            player_2.query[idx] += "<|start_header_id|>assistant<|end_header_id|> <think>" 
-
-            # conversation
-            conversation[idx] += player_1.name + ":\n    <think>" + parsed_action['think'] + "</think>\n"
-            if 'talk' in parsed_action:
-                conversation[idx] += "    <talk>" + parsed_action['talk'] + "</talk> \n"
-            if 'play' in parsed_action:
-                conversation[idx] += "    <play>" + parsed_action['play'] + "</play> \n"
-
-        # swap players for next round
-        swapped = not swapped
-        player_1, player_2 = player_2, player_1
-
-    if swapped:
-        player_1, player_2 = player_2, player_1
-
-    # error if any player didn't play
-    for idx in range(len(player_1.play)):
-        if player_1.play[idx] is None:
-            player_1.play[idx] = Game("error")
-        if player_2.play[idx] is None:
-            player_2.play[idx] = Game("error")
-
-    # concat moves
-    moves = list(zip(player_1.play, player_2.play))
-
-    training_conversation = player_1.query if player_1.train else player_2.query
-    metrics["conversation_length (tokens)"] = len((player_1 if player_1.train else player_2).llm.tokenizer(training_conversation[0])['input_ids'])
+            if action:
+                conversations[idx].turn(action)
     
-    return conversation, moves, (training_conversation, attention_indices, group_indices, num_interactions)
+    return conversations, group_indices
 
 def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
-    """
-    Evaluates two competing LLMs through the creation of a batch.
-    Returns nothing, evaluations are added to metrics
-    """
 
     metrics[metrics_prefix+"internal_state_loss"] = 0.0
     metrics[metrics_prefix+"word_based_loss"] = 0.0
     word_based_count = 0
     internal_state_count = 0
 
-    Game = get_game(config.game.name)
-    
-    swapped = False
-    conversation = ["" for _ in range(config.eval.num_episodes)]
-
     with open(config.prompts.folder + config.prompts.initial, "r") as file:
         initial_prompt = file.read()
+    with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
+        other_moved_prompt = file.read()
+
+    Game = get_game(config.game.name)
+    conversations = [ConversationManager(
+        initial_prompt, other_moved_prompt, config.game.player_1_name, config.game.player_2_name, Game
+    )]
     
     gen_conf_trained = {
         "max_new_tokens" : config.train.max_new_tokens,
@@ -218,115 +98,30 @@ def eval_batch(llm_1, llm_2, eval_llm_num, config, metrics, metrics_prefix=""):
         "temperature" : config.eval.opponent_temperature,
         "do_sample" : config.eval.opponent_temperature > 0
     }
-    player_1 = SimpleNamespace(
-        llm = llm_1,
-        name = config.game.player_1_name,
-        query = [initial_prompt.format(my_name="assistant", other_name="user") + "<|start_header_id|>assistant<|end_header_id|> <think>" for _ in range(config.eval.num_episodes)],
-        eval = eval_llm_num == 1,
-        play = [None for _ in range(config.eval.num_episodes)],
-        generation_config = gen_conf_trained if eval_llm_num == 1 else gen_conf_opponent
-    )
-    player_2 = SimpleNamespace(
-        llm = llm_2,
-        name = config.game.player_2_name,
-        query = [initial_prompt.format(my_name="assistant", other_name="user") + "<|start_header_id|>user<|end_header_id|>" for _ in range(config.eval.num_episodes)],
-        eval = eval_llm_num == 2,
-        play = [None for _ in range(config.eval.num_episodes)],
-        generation_config = gen_conf_trained if eval_llm_num == 2 else gen_conf_opponent
-    )
 
-    must_play = [False for _ in range(config.eval.num_episodes)]
-    errors = [None for _ in range(config.eval.num_episodes)]
+    llm_trained = llm_1 if eval_llm_num == 1 else llm_2
+    llm_opponent = llm_2 if eval_llm_num == 1 else llm_1
 
     print("    Evaluating", flush=True)
-    for _ in range(2*config.train.max_interactions):
-
-        # check if both players played in all games
-        game_over = [x and y for x,y in zip(player_1.play, player_2.play)]
-        if all(game_over):
+    for interaction_idx in range(1, 1+2*config.train.max_interactions):
+        if all(c.finished() for c in conversations):
             break
 
-        # evaluate player_1 if needed
-        if player_1.eval:
-            ### internal state evaluation
-            player_1_estimation = masked_call(
-                lambda q : estimate_strategy(player_1.llm, q, Game, other_name="user"),
-                player_1.query,
-                [not x for x in game_over],
-                unpack = False
-            )
-            player_2_strategy = masked_call(
-                lambda q : estimate_strategy(player_2.llm, q, Game, other_name=None),
-                player_2.query,
-                [not x for x in game_over],
-                unpack = False
-            )
-
-            curr_kl = 0.0
-            for x in range(len(player_1_estimation)):
-                curr_kl += kl_div(player_1_estimation[x], player_2_strategy[x])
-            curr_kl /= len(player_1_estimation)
-            metrics[metrics_prefix+"internal_state_loss"] += curr_kl
+        if interaction_idx%2 == eval_llm_num%2:
+            metrics[metrics_prefix+"internal_state_loss"] += internalStateEvaluation(llm_trained, llm_opponent, Game, conversations)
             internal_state_count += 1
 
         # generate actions
+        curr_llm = llm_1 if interaction_idx%2 == 1 else llm_2
+        curr_gen_conf = gen_conf_trained if interaction_idx%2 == eval_llm_num%2 else gen_conf_opponent
         actions = masked_call(
-                    lambda x: player_1.llm.generate(x, **player_1.generation_config),
-                    player_1.query,
-                    [not x for x in game_over]
+                    lambda x: curr_llm.generate(x, **curr_gen_conf),
+                    [c.get_query() for c in conversations],
+                    [not c.finished() for c in conversations]
                 )
         for idx, action in enumerate(actions):
-            if action == "":
-                continue
-
-            try:
-                parsed_action = parse_last("<think>" + action)
-            except AssertionError as e:
-                errors[idx] = e
-                player_1.play[idx] = player_2.play[idx] = Game("error")
-                continue
-
-            # check if player played
-            if 'play' in parsed_action:
-                player_1.play[idx] = Game(parsed_action['play'].lower().strip())
-            elif must_play[idx]:
-                player_1.play[idx] = Game("error")
-
-            ### add last action to queries
-            # player_1 query
-            player_1.query[idx] += parsed_action['think'] + "</think>\n"
-            if 'talk' in parsed_action:
-                player_1.query[idx] += "<talk>" + parsed_action['talk'] + "</talk> \n"
-            if 'play' in parsed_action:
-                player_1.query[idx] += "<play>" + parsed_action['play'] + "</play> \n"
-            player_1.query[idx] += "<|eot_id|>"
-            
-            player_1.query[idx] += "<|start_header_id|>user<|end_header_id|>" 
-            
-            # player_2 query
-            if 'talk' in parsed_action:
-                player_2.query[idx] += parsed_action['talk'].strip() + "\n"
-            player_2.query[idx] += "<|eot_id|>"
-            if 'play' in parsed_action:
-                with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
-                    player_2.query[idx] += file.read().format(other_name = "user")
-                must_play[idx] = True
-            player_2.query[idx] += "<|start_header_id|>assistant<|end_header_id|> <think>"
-
-            # conversation
-            conversation[idx] += player_1.name + ":\n    <think>" + parsed_action['think'] + "</think>\n"
-            if 'talk' in parsed_action:
-                conversation[idx] += "    <talk>" + parsed_action['talk'] + "</talk> \n"
-            if 'play' in parsed_action:
-                conversation[idx] += "    <play>" + parsed_action['play'] + "</play> \n"
-
-            if player_1.eval and 'talk' in parsed_action:
-                metrics[metrics_prefix+"word_based_loss"] += sum(len(re.findall(r'\b' + re.escape(word) + r'\b', parsed_action['talk'])) for word in config.bad_words)
-                word_based_count += 1
-
-        # swap players for next round
-        swapped = not swapped
-        player_1, player_2 = player_2, player_1
+            if action:
+                conversations[idx].turn(action)
 
     metrics[metrics_prefix+"word_based_loss"] /= word_based_count if word_based_count != 0 else 1
     metrics[metrics_prefix+"internal_state_loss"] /= internal_state_count if internal_state_count != 0 else 1
@@ -620,45 +415,38 @@ def train_loop(train_llm, opponent_llm, config):
             time_pre_generation = time()
             torch.cuda.reset_peak_memory_stats()
 
-            # conversation, moves, errors, train_data = create_batch(llm_1, llm_2, train_llm_num, config, metrics)
-            conversation, moves, train_data = create_batch(llm_1, llm_2, train_llm_num, config, metrics)
-            training_conversation, att_idx, group_indices, num_interactions = train_data
+            conversations, group_indices = create_batch(llm_1, llm_2, train_llm_num, config)
 
+            metrics["conversation_length (tokens)"] = len(llm_1.tokenizer(conversations[0].full_conversation)['input_ids'])
             metrics["time_generation (s)"] = time() - time_pre_generation
             metrics["memory_usage_generation (GB)"] = torch.cuda.max_memory_allocated() / 1024**3
-            # metrics["memory_usage_generation (GB)"] = torch.cuda.memory_allocated() / 1024**3
-            
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
 
             print(f"\n\nEPOCH {epoch} - BATCH {batch_idx} :\n", file=conversation_file)
-            print(conversation[0], file=conversation_file, flush=True)
+            print(conversations[0].full_conversation, file=conversation_file, flush=True)
 
             opponent_llm.to('cpu')
 
             ### prepare batch for training
 
-            # compute groups for GRPO
+            # compute groups for GRPO + get rid of root conversation
             group_indices = torch.tensor(group_indices)
             unique_groups, counts = torch.unique(group_indices, return_counts=True)
-            # get rid of root conversation & avoid std error in some niche cases
             unique_groups = unique_groups[counts > 1]
             group_mask = torch.isin(group_indices, unique_groups)
             group_indices = group_indices[group_mask]
-            conversation = [conversation[i] for i in range(len(group_mask)) if group_mask[i]]
-            moves = [moves[i] for i in range(len(group_mask)) if group_mask[i]]
-            training_conversation = [training_conversation[i] for i in range(len(group_mask)) if group_mask[i]]
-            att_idx = [att_idx[i] for i in range(len(group_mask)) if group_mask[i]]
-            num_interactions = [num_interactions[i] for i in range(len(group_mask)) if group_mask[i]]
+            conversations = [conversations[i] for i in range(len(group_mask)) if group_mask[i]]
 
                 # this happens when one player doesn't ever play
                 # so it should happen very rarely, only if player-1 makes a format error
-            if len(training_conversation) == 0:
+            if len(conversations) == 0:
                 print("Empty training conversation")
                 print("This is not normal")
                 continue
 
-            # moves -> rewards
+            # Compute rewards
+            moves = [c.get_moves() for c in conversations]
             if train_llm_num == 2:
                 moves = [(w[1], w[0]) for w in moves]
             rewards = torch.tensor([Game.score(w[0], w[1]) for w in moves])
@@ -682,11 +470,11 @@ def train_loop(train_llm, opponent_llm, config):
 
                 # multiply by discount factor
                 if config.train.gamma != 1:
+                    num_interactions = [c.num_interactions for c in conversations]
                     discount_factor = torch.full(advantage.shape, config.train.gamma) ** ((torch.tensor(num_interactions)-train_llm_num)//2 - torch.tensor(group_indices))
                     advantage = (advantage*discount_factor)
 
-            # with the advantages, we can forget everything after the evaluated turn
-            training_conversation = [c[:idx[1]] for c, idx in zip(training_conversation, att_idx)]
+            training_conversation, att_idx = zip(*[c.get_trainable(train_llm_num, idx) for (c, idx) in zip(conversations, group_indices)])
 
             # tokenize training_conversation
             tokenized = train_llm.tokenizer(training_conversation, padding=True, truncation=True, return_tensors="pt", return_offsets_mapping=True)
@@ -694,12 +482,10 @@ def train_loop(train_llm, opponent_llm, config):
             padding = tokenized['attention_mask']
 
             # att_idx -> attention_mask
-            attention_mask = []
-            for idx in range(len(training_conversation)):
-                offsets = tokenized['offset_mapping'][idx].tolist()  # Get the offsets for the current text
-                mask = [not (token_end <= att_idx[idx][0] or token_start >= att_idx[idx][1]) for token_start, token_end in offsets]
-                attention_mask.append(mask)
-            attention_mask = torch.tensor(attention_mask)
+            attention_mask = torch.tensor([
+                [token_end > att_idx[idx] for _, token_end in tokenized['offset_mapping'][idx].tolist()]
+                for idx in range(len(training_conversation))
+            ])
             
             if config.train.method == "grpo":
                 curr_batch = (input, padding, attention_mask, advantage)

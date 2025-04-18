@@ -1,21 +1,5 @@
-from bs4 import BeautifulSoup
 import torch
-
-def parse_last(text):
-    # Regular expression to find all tags with content
-    soup = BeautifulSoup(text, 'html.parser')
-    matches = [(tag.name, tag.get_text()) for tag in soup.find_all()]
-    
-    parsed_text = {}
-    for tag, content in matches:
-        if tag == "think":
-            parsed_text = {}
-        parsed_text[tag] = content
-    
-    if len(parsed_text) < 2:
-        raise AssertionError("Format error", text)
-    
-    return parsed_text
+from math import log
 
 
 def masked_call(cls, queries, mask, unpack=True):
@@ -64,7 +48,7 @@ def estimate_strategy(llm, queries, Game, other_name=None):
     assert (sample_token == tokenized['input_ids'][:,-1]).all()
 
     probs_list = []
-    with torch.no_grad():  # Disable gradient computation
+    with torch.no_grad():
         for i in range(tokenized["input_ids"].shape[0]):  # Iterate over sentences (memory issues)
             output = llm.model(
                 input_ids=tokenized["input_ids"][i].unsqueeze(0),
@@ -75,14 +59,8 @@ def estimate_strategy(llm, queries, Game, other_name=None):
             probs_list.append(probs)
     probs = torch.cat(probs_list, dim=0)
 
-    predicted_strategy = [{token_to_instance[tokens[idx]] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
-
-    return predicted_strategy
-
-
-
-from math import log
-
+    return [{token_to_instance[tokens[idx]] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
+    
 # kl divergence computation specifically for the case of p, q being dictionaries
 def kl_div(p, q):
     kl_div = 0.0
@@ -90,3 +68,24 @@ def kl_div(p, q):
         q_prob = q[event]
         kl_div += p_prob * log(p_prob / q_prob)
     return kl_div
+
+
+def internalStateEvaluation(llm_trained, llm_opponent, Game, conversations):
+    player_1_estimation = masked_call(
+        lambda q : estimate_strategy(llm_trained, q, Game, other_name="user"),
+        queries= [c.get_query() for c in conversations],
+        mask   = [not c.finished() for c in conversations],
+        unpack = False
+    )
+    player_2_strategy = masked_call(
+        lambda q : estimate_strategy(llm_opponent, q, Game, other_name=None),
+        queries= [c.get_query(other_player=True) for c in conversations],
+        mask   = [not c.finished() for c in conversations],
+        unpack = False
+    )
+
+    kl = 0.0
+    for x in range(len(player_1_estimation)):
+        kl += kl_div(player_1_estimation[x], player_2_strategy[x])
+    kl /= len(player_1_estimation)
+    return kl
