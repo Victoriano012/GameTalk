@@ -8,10 +8,12 @@ def get_actual_llm_name(llm_name):
         'llama-3B' : "meta-llama/Llama-3.2-3B-Instruct",
         'llama-8B' : "meta-llama/Llama-3.1-8B-Instruct",
     }
+
     if llm_name in supported_llms:
         return supported_llms[llm_name]
     if llm_name in supported_llms.values():
         return llm_name
+    
     raise Exception('Non-supported LLM')
 
 
@@ -21,11 +23,12 @@ class LLM(nn.Module):
         llm_name = get_actual_llm_name(llm_name)
 
         if unsloth:
+            raise Exception('Unsloth is not supported, it breaks evaluation')
             if 'FastLanguageModel' not in globals():
                 from unsloth import FastLanguageModel
             self.model, self.tokenizer = FastLanguageModel.from_pretrained(model_name = llm_name)
             if lora_config is not None:
-                self.model = FastLanguageModel.get_peft_model(self.model, **lora_config)
+                self.model = FastLanguageModel.get_peft_model(self.model, use_gradient_checkpointing = "unsloth", **lora_config)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(llm_name, padding_side='left')
             self.tokenizer.pad_token = self.tokenizer.eos_token

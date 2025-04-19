@@ -3,7 +3,7 @@
 llms:
   train_llm_name: "llama-3B"
   opponent_llm_name: ${llms.train_llm_name}
-  unsloth : False # TODO
+  unsloth : False # not working
 
 train:
   learning_rate: 1e-4
@@ -11,10 +11,11 @@ train:
   auto_find_batch_size : True
   num_generations: 8
   gradient_accumulation_steps : 1
+  early_stopping_patience: 100
   
   max_completion_length: 300
 
-  gamma : 1 # TODO
+  gamma : 1 # TODO (should rewrite compute_loss, not trivial)
 
   beta: 0.1 # kl_coef
   epsilon : 0.2 # ppo_epsilon
@@ -22,7 +23,7 @@ train:
   num_iterations : 1
 
   trained_temperature : 1
-  trained_top_p : 1.0
+  # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
   opponent_temperature : 0.6
   opponent_top_p : 0.9
   
@@ -32,9 +33,11 @@ train:
     variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
     average_log_prob : False
 
-  eval_steps: 10
+  eval_steps: 50
   logging_steps : 1
   save_steps : ${train.eval_steps}
+  save_total_limit : 2
+  # load_best_model_at_end : True
 
 dataset:
   num_root_generations : 4
@@ -67,17 +70,15 @@ prompts:
   initial: "initial.txt"
   other_moved: "other_moved.txt"
 
-# TODO
 logs:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
   conversations: "conversations.txt"
   metrics: "metrics.txt"
-  model: "model.pth"
 
 run_name: "first-test"
 wandb:
-  project: "rock-paper-scissors" # TODO
+  project: "rock-paper-scissors"
 
 
 # TODO

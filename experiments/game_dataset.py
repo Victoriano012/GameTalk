@@ -1,17 +1,19 @@
-from torch.utils.data import Dataset
 from transformers import TrainerCallback
+from torch.utils.data import Dataset
+import torch
 
 from copy import deepcopy
+from math import floor
 import random
 
 from conversation_manager import ConversationManager, autoassign
 from game_utils import masked_call
 from games import get_game
 
+@torch.no_grad()
 def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config):
     gen_conf_trained = {
         "max_new_tokens" : config.train.max_completion_length,
-        "top_p" : config.train.trained_top_p,
         "temperature" : config.train.trained_temperature,
         "do_sample" : config.train.trained_temperature > 0
     }
@@ -62,7 +64,7 @@ class GameDataset(Dataset):
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
 
     def create_batch(self):
-        print("Creating batch", flush=True)
+        print("\nCreating batch", flush=True)
 
         conversations = [ConversationManager(
             self.initial_prompt, self.other_moved_prompt,
@@ -74,6 +76,7 @@ class GameDataset(Dataset):
 
         all_subconversations = [list(c.get_subconversations(self.train_llm_num)) for c in conversations]
         self.batch = sum(all_subconversations, [])
+        self.full_conversations = conversations
         random.shuffle(self.batch)
 
         print("Batch created", flush=True)
@@ -87,9 +90,23 @@ class OutdateDatasetCallback(TrainerCallback):
     def on_epoch_end(self, args, state, control, **kwargs):
         self.gameDataset.create_batch()
 
+class MetricsLogger(TrainerCallback):
+    @autoassign
+    def __init__(self, gameDataset, metics_file, conversation_file, config):
+        print(f"Configuration:\n{config}\n\n\n", file=self.metics_file, flush=True)
+        pass
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        print("EPOCH", floor(state.epoch), "- STEP", state.global_step, file=self.metics_file, flush=True)
+        print(logs, file=self.metics_file)
+    
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        print("EPOCH", state.epoch, file=self.conversation_file)
+        for c in self.gameDataset.full_conversations:
+            print(c.full_conversation, '\n\n', file=self.conversation_file)
 
 def reward(prompts, completions, conversation, train_llm_num, Game, train_llm, opponent_llm, config):
-    print("Computing rewards", flush=True)
+    print("\nComputing rewards", flush=True)
     conversations = [deepcopy(c) for c in conversation]
     for idx, action in enumerate(completions): conversations[idx].turn(action)
 
