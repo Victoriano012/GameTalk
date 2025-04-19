@@ -3,57 +3,53 @@
 llms:
   train_llm_name: "llama-3B"
   opponent_llm_name: ${llms.train_llm_name}
-  unsloth : False
-
-game:
-  name: "rock-paper-scissors"
-  stopping_text: ["</talk>", "</play>"]
-  one_turn : False
-
-  player_1_name: "Player-1"
-  player_2_name: "Player-2"
-  trained_player: 2   # 1 or 2 or "both"
+  unsloth : False # TODO
 
 train:
-  lr: 1e-5
-  epochs: 500
-  batches_per_epoch: 1
-  group_size: 16
-  minibatch_size: 1
-  gradient_accumulation: True
+  learning_rate: 1e-4
+  num_train_epochs: 500
+  auto_find_batch_size : True
+  num_generations: 8
+  gradient_accumulation_steps : 1
   
-  max_interactions: 5
-  max_new_tokens: 300
+  max_completion_length: 300
 
-  gamma : 1
-  kl_coef: 0.1
-  ppo_eps: 0.2
-  grpo_std_eps: 1e-8
+  gamma : 1 # TODO
 
-  save_every: 50
+  beta: 0.1 # kl_coef
+  epsilon : 0.2 # ppo_epsilon
 
-  const_ref_llm : True
+  num_iterations : 1
 
-  replay_batches_per_epoch: 3
-  buffer_size_limit: 16
-
-  opponent_temperature : 0.6
   trained_temperature : 1
+  trained_top_p : 1.0
+  opponent_temperature : 0.6
   opponent_top_p : 0.9
-  trained_top_p : 0.5
   
+  # TODO
   method : "grpo" # "dpo" / "grpo"
   dpo:
     variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
     average_log_prob : False
 
+  eval_steps: 10
+  logging_steps : 1
+  save_steps : ${train.eval_steps}
+
+dataset:
   num_root_generations : 4
-  batch_size : 8
+  samples_per_epoch : 8 # ~ dataset_size
+  max_interactions: 5
 
+  game_name: "rock-paper-scissors"
 
+  player_1_name: "Player-1"
+  player_2_name: "Player-2"
+  trained_player: 2   # 1 or 2 or "both"
+
+# TODO
 eval:
-  eval_every: 10
-  num_episodes: 16
+  num_samples: 16
   
   opponent_temperature : ${train.opponent_temperature}
   trained_temperature : ${train.trained_temperature}
@@ -71,6 +67,7 @@ prompts:
   initial: "initial.txt"
   other_moved: "other_moved.txt"
 
+# TODO
 logs:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
@@ -80,10 +77,10 @@ logs:
 
 run_name: "first-test"
 wandb:
-  project: "rock-paper-scissors"
+  project: "rock-paper-scissors" # TODO
 
 
-
+# TODO
 ###### Not modifiable configuration ######
 
 tracked_metrics: [

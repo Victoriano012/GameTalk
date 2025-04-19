@@ -1,6 +1,9 @@
 from trl import GRPOConfig, GRPOTrainer
 from functools import partial, update_wrapper
+import inspect
 import hydra
+import sys
+import os
 
 from game_dataset import GameDataset, OutdateDatasetCallback, reward
 from llm_utils import LLM
@@ -8,6 +11,11 @@ from llm_utils import LLM
 
 @hydra.main(config_path='config', config_name='config', version_base=None)
 def __main__(config):
+    
+    os.makedirs(f"{config.logs.folder}{config.run_name}", exist_ok=True)
+    general_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.general}", "w")
+    sys.stdout = general_file
+    sys.stderr = general_file
 
     train_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
     opponent_llm = LLM(config.llms.opponent_llm_name, unsloth=config.llms.unsloth).to('cuda')
@@ -17,20 +25,22 @@ def __main__(config):
     
     reward_mod = partial(reward, Game=dataset.Game, train_llm=train_llm, opponent_llm=opponent_llm, config=config)
     update_wrapper(reward_mod, reward)
-
+    
+    GRPOConfig_params = set(inspect.signature(GRPOConfig.__init__).parameters)
+    training_args = {k: v for k, v in config.train.items() if k in GRPOConfig_params}
     training_args = GRPOConfig(
+        **training_args,
+        
         output_dir=config.logs.folder + config.run_name,
         run_name=config.run_name,
-        logging_steps=1,
-        num_train_epochs=config.train.epochs,
-        max_completion_length=config.train.max_new_tokens,
+
+        eval_strategy="no",
         max_prompt_length=None,
+        logging_first_step = True,
 
-        learning_rate=config.train.lr,
-        beta=config.train.kl_coef,
-
-        auto_find_batch_size = True
+        temperature=config.train.trained_temperature,
     )
+
     trainer = GRPOTrainer(
         model=train_llm.model,
         processing_class=train_llm.tokenizer,

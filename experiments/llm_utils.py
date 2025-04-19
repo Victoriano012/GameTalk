@@ -1,17 +1,12 @@
-# from unsloth import FastLanguageModel
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import get_peft_model, LoraConfig
 import torch.nn as nn
 import torch
 
-def get_actual_llm_name(llm_name, unsloth=False):
-    if unsloth:
-        llm_name = 'unsloth-' + llm_name
+def get_actual_llm_name(llm_name):
     supported_llms = {
         'llama-3B' : "meta-llama/Llama-3.2-3B-Instruct",
         'llama-8B' : "meta-llama/Llama-3.1-8B-Instruct",
-        'unsloth-llama-3B' : "unsloth/Llama-3.2-3B-Instruct",
-        'unsloth-llama-8B' : "unsloth/Llama-3.1-8B-Instruct"
     }
     if llm_name in supported_llms:
         return supported_llms[llm_name]
@@ -23,14 +18,14 @@ def get_actual_llm_name(llm_name, unsloth=False):
 class LLM(nn.Module):
     def __init__(self, llm_name, lora_config=None, unsloth=False):
         super().__init__()
-        llm_name = get_actual_llm_name(llm_name, unsloth)
+        llm_name = get_actual_llm_name(llm_name)
 
         if unsloth:
-            raise Exception("Unsloth doesn't work, don't use it")
-            pass
-            # self.model, self.tokenizer = FastLanguageModel.from_pretrained(model_name = llm_name)
-            # if lora_config is not None:
-            #     self.model = FastLanguageModel.get_peft_model(self.model, **lora_config)
+            if 'FastLanguageModel' not in globals():
+                from unsloth import FastLanguageModel
+            self.model, self.tokenizer = FastLanguageModel.from_pretrained(model_name = llm_name)
+            if lora_config is not None:
+                self.model = FastLanguageModel.get_peft_model(self.model, **lora_config)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(llm_name, padding_side='left')
             self.tokenizer.pad_token = self.tokenizer.eos_token

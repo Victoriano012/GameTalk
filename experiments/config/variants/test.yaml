@@ -1,14 +1,11 @@
 # @package _global_
 train:
-  epochs: 1
-  batches_per_epoch: 1
-  group_size: 6
-  
-  replay_batches_per_epoch: 1
-  buffer_size_limit: 1
+  num_train_epochs: 1
+  num_generations: 4
+  num_iterations: 1
 
 eval:
-  num_episodes: 2
+  num_samples: 2
 
 logs:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/tests/"

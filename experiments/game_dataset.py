@@ -10,19 +10,19 @@ from games import get_game
 
 def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config):
     gen_conf_trained = {
-        "max_new_tokens" : config.train.max_new_tokens,
+        "max_new_tokens" : config.train.max_completion_length,
         "top_p" : config.train.trained_top_p,
         "temperature" : config.train.trained_temperature,
         "do_sample" : config.train.trained_temperature > 0
     }
     gen_conf_opponent = {
-        "max_new_tokens" : config.train.max_new_tokens,
+        "max_new_tokens" : config.train.max_completion_length,
         "top_p" : config.train.opponent_top_p,
         "temperature" : config.train.opponent_temperature,
         "do_sample" : config.train.opponent_temperature > 0
     }
 
-    for interaction_idx in range(1, 1+2*config.train.max_interactions):
+    for interaction_idx in range(1, 1+2*config.dataset.max_interactions):
         if all(c.finished() for c in conversations):
             break
 
@@ -47,11 +47,11 @@ class GameDataset(Dataset):
             self.initial_prompt = file.read()
         with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
             self.other_moved_prompt = file.read()
-        self.Game = get_game(config.game.name)
+        self.Game = get_game(config.dataset.game_name)
         self.create_batch()
 
     def __len__(self):
-        return self.config.train.batch_size
+        return self.config.dataset.samples_per_epoch
 
     # generate root conversation and all sub-conversations
     def __getitem__(self, idx):
@@ -65,9 +65,11 @@ class GameDataset(Dataset):
         print("Creating batch", flush=True)
 
         conversations = [ConversationManager(
-            self.initial_prompt, self.other_moved_prompt, self.config.game.player_1_name, self.config.game.player_2_name, self.Game
-        ) for _ in range(self.config.train.num_root_generations) ]
-        self.train_llm_num = 1 if self.config.game.trained_player == 1 else 0 if self.config.game.trained_player == 2 else round(random.random())
+            self.initial_prompt, self.other_moved_prompt,
+            self.config.dataset.player_1_name, self.config.dataset.player_2_name,
+            self.Game, self.config.dataset.max_interactions
+        ) for _ in range(self.config.dataset.num_root_generations) ]
+        self.train_llm_num = 1 if self.config.dataset.trained_player == 1 else 0 if self.config.dataset.trained_player == 2 else round(random.random())
         conversations = finish_conversations(conversations, self.train_llm, self.opponent_llm, self.train_llm_num, self.config)
 
         all_subconversations = [list(c.get_subconversations(self.train_llm_num)) for c in conversations]

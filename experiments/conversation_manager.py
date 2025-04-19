@@ -70,9 +70,9 @@ class ConversationPlayer:
 
 class ConversationManager:
     @autoassign
-    def __init__(self, initial_prompt, other_moved_prompt, name_1, name_2, Game):
-        self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2), Game)
-        self.player_2 = ConversationPlayer(initial_prompt.format(my_name=name_2, other_name=name_1), Game)
+    def __init__(self, initial_prompt, other_moved_prompt, name_1, name_2, Game, max_interact):
+        self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2, max_interact=max_interact), Game)
+        self.player_2 = ConversationPlayer(initial_prompt.format(my_name=name_2, other_name=name_1, max_interact=max_interact), Game)
 
         self.players = (self.player_1, self.player_2)
         self.names = (name_1, name_2)
@@ -122,7 +122,7 @@ class ConversationManager:
         self.names = (self.names[1], self.names[0])
     
     def get_subconversations(self, player_num):
-        conv = ConversationManager(self.initial_prompt, self.other_moved_prompt, self.name_1, self.name_2, self.Game)
+        conv = ConversationManager(self.initial_prompt, self.other_moved_prompt, self.name_1, self.name_2, self.Game, self.max_interact)
         for idx, action in enumerate(self.all_actions):
             if idx % 2 == player_num:
                 yield deepcopy(conv)
