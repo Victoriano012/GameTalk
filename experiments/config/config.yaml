@@ -47,6 +47,9 @@ train:
     variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
     average_log_prob : False
 
+  num_root_generations : 4
+  batch_size : 8
+
 
 eval:
   eval_every: 10
@@ -69,7 +72,7 @@ prompts:
   other_moved: "other_moved.txt"
 
 logs:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/"
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
   conversations: "conversations.txt"
   metrics: "metrics.txt"

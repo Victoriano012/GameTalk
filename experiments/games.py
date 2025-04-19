@@ -33,6 +33,8 @@ class RPS(Enum):
     
     # move1 wins -> 2., move2 wins -> 0., tie -> 1.
     def score(move1, move2) -> int:
+        if move1 == None: move1 = RPS.ERROR
+        if move2 == None: move2 = RPS.ERROR
 
         # error cases
         if move1 == RPS.ERROR:
