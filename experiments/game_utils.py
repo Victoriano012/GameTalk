@@ -1,6 +1,6 @@
 import torch
-from math import log
-
+import math
+import re
 
 def masked_call(cls, queries, mask, unpack=True):
     filtered_inputs = [q for q, m in zip(queries, mask) if m] # Extract elements where mask is 1
@@ -66,7 +66,7 @@ def kl_div(p, q):
     kl_div = 0.0
     for event, p_prob in p.items():
         q_prob = q[event]
-        kl_div += p_prob * log(p_prob / q_prob)
+        kl_div += p_prob * math.log(p_prob / q_prob)
     return kl_div
 
 
@@ -89,3 +89,15 @@ def internalStateEvaluation(llm_trained, llm_opponent, Game, conversations):
         kl += kl_div(player_1_estimation[x], player_2_strategy[x])
     kl /= len(player_1_estimation)
     return kl
+
+
+bad_words = [""]
+def wordBasedLoss(conversation, train_llm_num):
+    word_based_loss = 0.0
+    player = conversation.player_1 if train_llm_num%2 == 1 else conversation.player_2
+    for parsed_action in player.parsed_actions:
+        if 'talk' not in parsed_action:
+            continue
+        talk = parsed_action['talk']
+        word_based_loss += sum(len(re.findall(r'\b' + re.escape(word) + r'\b', talk)) for word in bad_words)
+    return word_based_loss

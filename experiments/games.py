@@ -14,6 +14,7 @@ def get_game(game_name: str):
 
 
 from enum import Enum
+from collections import defaultdict
 
 # rock-paper-scissors implementation
 class RPS(Enum):
@@ -46,3 +47,17 @@ class RPS(Enum):
         score = (mapping[move1] - mapping[move2] + 3) % 3
         score = -1 if score == 2 else score
         return float(score+1)
+    
+    def game_metrics(moves):
+        rewards = [RPS.score(w[0], w[1]) for w in moves]
+        
+        metrics = defaultdict(float)
+        metrics["win_rate"] = sum(1 for r in rewards if r == 2.)
+        metrics["draw_rate"] = sum(1 for r in rewards if r == 1.)
+        metrics["loss_rate"] = sum(1 for r in rewards if r <= 0.)
+
+        metrics["lost_by_error (%)"] += sum(1 for w in moves if w[0].is_error())
+        metrics["won_by_error (%)"] += sum(1 for w in moves if w[1].is_error() and not w[0].is_error())
+
+        return metrics
+    

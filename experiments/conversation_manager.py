@@ -1,3 +1,4 @@
+from bs4.exceptions import ParserRejectedMarkup
 from bs4 import BeautifulSoup
 from copy import deepcopy
 import inspect
@@ -37,6 +38,8 @@ class ConversationPlayer:
         self.starting_indices = []
         self.ending_indices = []
 
+        self.parsed_actions = []
+
     def my_turn(self, parsed_action, error=False):
         self.pov += "<|start_header_id|>assistant<|end_header_id|> <think>"
         self.starting_indices.append(len(self.pov))
@@ -46,6 +49,8 @@ class ConversationPlayer:
             self.play = self.Game("error")
 
         else:
+            self.parsed_actions.append(parsed_action)
+
             if 'play' in parsed_action:
                 self.play = self.Game(parsed_action['play'].lower().strip())
                 
@@ -80,6 +85,12 @@ class ConversationManager:
 
         self.full_conversation = ""
         self.all_actions = []
+    
+    def __len__(self):
+        return len(self.full_conversation)
+
+    def __str__(self):
+        return "ConversationManager:\n" + self.full_conversation
 
     # other player = True -> query the player who has just played
     def get_query(self, other_player=False):
@@ -101,9 +112,10 @@ class ConversationManager:
         self.all_actions.append(action)
         try:
             parsed_action = parse_last("<think>" + action)
-        except AssertionError as e:
+        except (AssertionError, ParserRejectedMarkup) as e:
             self.players[0].my_turn(action, error=True)
             self.players[1].other_turn(action, self.other_moved_prompt, error=True)
+            self.full_conversation += self.names[0] + " did a format error:\n" + action + "\n"
             return
 
         self.players[0].my_turn(parsed_action)
@@ -124,7 +136,7 @@ class ConversationManager:
     def get_subconversations(self, player_num):
         conv = ConversationManager(self.initial_prompt, self.other_moved_prompt, self.name_1, self.name_2, self.Game, self.max_interact)
         for idx, action in enumerate(self.all_actions):
-            if idx % 2 == player_num:
+            if idx % 2 == player_num % 2:
                 yield deepcopy(conv)
             conv.turn(action)
         

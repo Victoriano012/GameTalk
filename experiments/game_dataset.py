@@ -28,8 +28,8 @@ def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, 
         if all(c.finished() for c in conversations):
             break
 
-        curr_llm = train_llm if interaction_idx%2 == train_llm_num else opponent_llm
-        curr_gen_conf = gen_conf_trained if interaction_idx%2 == train_llm_num else gen_conf_opponent
+        curr_llm = train_llm if interaction_idx%2 == train_llm_num%2 else opponent_llm
+        curr_gen_conf = gen_conf_trained if interaction_idx%2 == train_llm_num%2 else gen_conf_opponent
         actions = masked_call(
                     lambda x: curr_llm.generate(x, **curr_gen_conf),
                     [c.get_query() for c in conversations],
@@ -50,7 +50,7 @@ class GameDataset(Dataset):
         with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
             self.other_moved_prompt = file.read()
         self.Game = get_game(config.dataset.game_name)
-        self.create_batch()
+        self.update_batch()
 
     def __len__(self):
         return self.config.dataset.samples_per_epoch
@@ -63,23 +63,31 @@ class GameDataset(Dataset):
         conv = self.batch[idx]
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
 
-    def create_batch(self):
+    def update_batch(self):
+        self.batch, self.full_conversations, self.train_llm_num = self.create_batch()
+        random.shuffle(self.batch)
+
+    def create_batch(self, num_root_generations=None):
         print("\nCreating batch", flush=True)
 
+        if num_root_generations is None:
+            num_root_generations = self.config.dataset.num_root_generations
+        
         conversations = [ConversationManager(
             self.initial_prompt, self.other_moved_prompt,
             self.config.dataset.player_1_name, self.config.dataset.player_2_name,
             self.Game, self.config.dataset.max_interactions
-        ) for _ in range(self.config.dataset.num_root_generations) ]
-        self.train_llm_num = 1 if self.config.dataset.trained_player == 1 else 0 if self.config.dataset.trained_player == 2 else round(random.random())
-        conversations = finish_conversations(conversations, self.train_llm, self.opponent_llm, self.train_llm_num, self.config)
+        ) for _ in range(num_root_generations) ]
 
-        all_subconversations = [list(c.get_subconversations(self.train_llm_num)) for c in conversations]
-        self.batch = sum(all_subconversations, [])
-        self.full_conversations = conversations
-        random.shuffle(self.batch)
+        train_llm_num = self.config.dataset.trained_player
+        if not isinstance(train_llm_num, int):
+            train_llm_num = round(random.random())+1
+        conversations = finish_conversations(conversations, self.train_llm, self.opponent_llm, train_llm_num, self.config)
 
+        all_subconversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]
         print("Batch created", flush=True)
+
+        return sum(all_subconversations, []), conversations, train_llm_num
 
 
 class OutdateDatasetCallback(TrainerCallback):
@@ -105,16 +113,26 @@ class MetricsLogger(TrainerCallback):
         for c in self.gameDataset.full_conversations:
             print(c.full_conversation, '\n\n', file=self.conversation_file)
 
-def reward(prompts, completions, conversation, train_llm_num, Game, train_llm, opponent_llm, config):
+def game_reward(prompts, completions, conversation, train_llm_num, Game, train_llm, opponent_llm, config):
     print("\nComputing rewards", flush=True)
     conversations = [deepcopy(c) for c in conversation]
     for idx, action in enumerate(completions): conversations[idx].turn(action)
 
+    train_llm_num = train_llm_num[0]
     conversation = finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
 
     moves = [c.get_moves() for c in conversation]
-    moves = [w if n == 1 else (w[1], w[0]) for w, n in zip(moves, train_llm_num)]
+    if train_llm_num%2 == 0:
+        moves = [(w[1], w[0]) for w in moves]
     rewards = [Game.score(w[0], w[1]) for w in moves]
+
+    for c, r in zip(conversation, rewards):
+        print("CONVERSATION:\n", c)
+        print("REWARD:", r, '\n'*3, flush=True)
+        c.reward = r
+        c.opponent_reward = Game.score(c.get_moves()[1], c.get_moves()[0])
+        c.num_interactions = len(c.get_moves())
+        c.conv_length = len(train_llm.tokenizer(c.full_conversation)['input_ids'])
 
     print("Rewards computed", flush=True)
     return rewards

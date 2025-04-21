@@ -11,7 +11,7 @@ train:
   auto_find_batch_size : True
   num_generations: 8
   gradient_accumulation_steps : 1
-  early_stopping_patience: 100
+  early_stopping_patience: 5
   
   max_completion_length: 300
 
@@ -20,7 +20,7 @@ train:
   beta: 0.1 # kl_coef
   epsilon : 0.2 # ppo_epsilon
 
-  num_iterations : 1
+  num_iterations : 1 # GRPO mu
 
   trained_temperature : 1
   # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
@@ -33,11 +33,12 @@ train:
     variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
     average_log_prob : False
 
-  eval_steps: 50
+  eval_steps: 20
+  eval_samples : 32
   logging_steps : 1
   save_steps : ${train.eval_steps}
   save_total_limit : 2
-  # load_best_model_at_end : True
+  load_best_model_at_end : True
 
 dataset:
   num_root_generations : 4
@@ -49,15 +50,6 @@ dataset:
   player_1_name: "Player-1"
   player_2_name: "Player-2"
   trained_player: 2   # 1 or 2 or "both"
-
-# TODO
-eval:
-  num_samples: 16
-  
-  opponent_temperature : ${train.opponent_temperature}
-  trained_temperature : ${train.trained_temperature}
-  opponent_top_p : ${train.opponent_top_p}
-  trained_top_p : ${train.trained_top_p}
 
 
 lora:
@@ -81,52 +73,7 @@ wandb:
   project: "rock-paper-scissors"
 
 
-# TODO
 ###### Not modifiable configuration ######
-
-tracked_metrics: [
-  "win_rate",
-  "draw_rate",
-  "loss_rate",
-  "reward",
-  "opponent_reward",
-  "normalized_relative_advantage",
-  "|kl|",
-  "|total_loss|",
-  "replay_|kl|",
-  "replay_|total_loss|",
-  # "internal_state_loss",   # only tracked when evaluating
-  # "word_based_loss",       # only tracked when evaluating
-
-  "num_samples",
-  "num_interactions",
-  "conversation_length (tokens)", # just root conversation
-  # "num_error_conversations",
-  "lost_by_error (%)",
-  "won_by_error (%)",
-  # "mini-errors",
-
-  "memory_usage_generation (GB)",
-  "memory_usage_minibatch (GB)",
-  "time_generation (s)",
-  "time_minibatch (s)",
-  "time_total_minibatches (s)",
-  "replay_time_minibatch (s)",
-  "time_total_replay (s)"
-]
-
-# metrics to be divided by number of samples
-normalized_metrics: [
-  "reward",
-  "opponent_reward",
-  "win_rate",
-  "draw_rate",
-  "loss_rate",
-  "lost_by_error (%)",
-  "won_by_error (%)",
-  "num_interactions"
-]
-
 bad_words: [
   "kill"
 ]
