@@ -120,10 +120,13 @@ class BertrandCompetition():
         
         curr_player = self.player_1 if player_id == self.player_1.id else self.player_2
 
-        if move is None or not can_cast_to_int(move):
+        if move is None:
             curr_player.moves.append("error")
         else:
-            curr_player.moves.append(int(move))
+            move = move.strip().lower()
+            if move[0] != '$' or not can_cast_to_int(move[1:]):
+                curr_player.moves.append("error")
+            else: curr_player.moves.append(int(move))
         
     
     def score(self, player_id):
