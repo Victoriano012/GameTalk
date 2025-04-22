@@ -81,10 +81,11 @@ class GameDataset(Dataset):
         if num_root_generations is None:
             num_root_generations = self.config.dataset.num_root_generations
         
-        if num_root_generations <= len(self.data[0]):
-            indices = random.sample(range(len(self.data[0])), k=num_root_generations)
+        length = len(next(iter(self.data.values()))) if self.data else 0
+        if num_root_generations <= length:
+            indices = random.sample(range(length), k=num_root_generations)
         else:
-            indices = random.choices(range(len(self.data[0])), k=num_root_generations)
+            indices = random.choices(range(length), k=num_root_generations)
         initial_kwargs = [{key: values[i] for key, values in self.data.items()} for i in indices]
 
         conversations = [ConversationManager(

@@ -4,6 +4,7 @@ from collections import defaultdict
 from types import SimpleNamespace
 from utils import autoassign
 from copy import copy
+import math
 import re
 
 # Returns the game instance based on the game name
@@ -110,6 +111,9 @@ class BertrandCompetition():
         self.player_2 = SimpleNamespace(id=id_2, moves=[])
 
         self.ids = (id_1, id_2)
+        self.cost = float(cost)
+        self.demand_den = float(demand_den)
+        self.max_price_with_demand = float(max_price_with_demand)
         self.__max_earnings = None
 
     def make_move(self, move, player_id):
@@ -126,7 +130,7 @@ class BertrandCompetition():
             move = move.strip().lower()
             if move[0] != '$' or not can_cast_to_int(move[1:]):
                 curr_player.moves.append("error")
-            else: curr_player.moves.append(int(move))
+            else: curr_player.moves.append(int(move[1:]))
         
     
     def score(self, player_id):
@@ -138,8 +142,8 @@ class BertrandCompetition():
         moves1, moves2 = (self.player_1.moves, self.player_2.moves) if player_id == self.player_1.id else (self.player_2.moves, self.player_1.moves)
         moves1, moves2 = copy(moves1), copy(moves1)
 
-        if len(moves1) == 0 and moves1[-1] == "error": moves1 = moves1[:-1]
-        if len(moves2) == 0 and moves2[-1] == "error": moves2 = moves2[:-1]
+        if len(moves1) != 0 and moves1[-1] == "error": moves1 = moves1[:-1]
+        if len(moves2) != 0 and moves2[-1] == "error": moves2 = moves2[:-1]
         if len(moves1) > len(moves2): moves1 = moves1[:len(moves2)]
         if len(moves1) < len(moves2): moves2 = moves2[:len(moves1)]
 
@@ -170,7 +174,7 @@ class BertrandCompetition():
         
     def _max_earnings(self):
         if self.__max_earnings is None:
-            self.__max_earnings = max((p-self.cost) * self._demand_function(p, self.max_price_with_demand+2) for p in range(self.cost, self.max_price_with_demand))
+            self.__max_earnings = max((p-self.cost) * self._demand_function(p, self.max_price_with_demand+2) for p in range(math.floor(self.cost), math.ceil(self.max_price_with_demand)))
         return self.__max_earnings
 
 
