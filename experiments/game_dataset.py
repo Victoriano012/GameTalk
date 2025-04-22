@@ -65,15 +65,16 @@ class GameDataset(Dataset):
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
 
     def update_batch(self):
-        self.batch, self.full_conversations, self.train_llm_num = self.create_batch()
+        self.batch, self.full_conversations, self.train_llm_num = self._create_batch()
         random.shuffle(self.batch)
 
     def create_eval_batch(self, num_root_generations=None):
-        self.eval_batch = self.create_batch(num_root_generations=num_root_generations)
+        output = self._create_batch(num_root_generations=num_root_generations)
+        _, self.eval_batch, _ = output
         self.eval_batch_shown = False
-        return self.eval_batch
+        return output
 
-    def create_batch(self, num_root_generations=None):
+    def _create_batch(self, num_root_generations=None):
         print("\nCreating batch", flush=True)
 
         if num_root_generations is None:
@@ -102,7 +103,7 @@ class OutdateDatasetCallback(TrainerCallback):
         self.gameDataset = gameDataset
 
     def on_epoch_end(self, args, state, control, **kwargs):
-        self.gameDataset.create_batch()
+        self.gameDataset.update_batch()
 
 class MetricsLogger(TrainerCallback):
     @autoassign

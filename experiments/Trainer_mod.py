@@ -29,7 +29,7 @@ class TrainerCustomEval(GRPOTrainer):
         metrics = defaultdict(float)
         try:
             for i in range(self.num_oom):
-                _, full_conversations, train_llm_num = dataset.create_batch(num_root_generations = eval_root_generations)
+                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = eval_root_generations)
                 conversations_text = [c.full_conversation for c in full_conversations]
 
                 moves = [c.get_moves() for c in full_conversations]
