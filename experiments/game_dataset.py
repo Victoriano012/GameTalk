@@ -51,6 +51,7 @@ class GameDataset(Dataset):
             self.other_moved_prompt = file.read()
         self.Game = get_game(config.dataset.game_name)
         self.update_batch()
+        self.eval_batch_shown = True
 
     def __len__(self):
         return self.config.dataset.samples_per_epoch
@@ -66,6 +67,11 @@ class GameDataset(Dataset):
     def update_batch(self):
         self.batch, self.full_conversations, self.train_llm_num = self.create_batch()
         random.shuffle(self.batch)
+
+    def create_eval_batch(self, num_root_generations=None):
+        self.eval_batch = self.create_batch(num_root_generations=num_root_generations)
+        self.eval_batch_shown = False
+        return self.eval_batch
 
     def create_batch(self, num_root_generations=None):
         print("\nCreating batch", flush=True)
@@ -100,7 +106,7 @@ class OutdateDatasetCallback(TrainerCallback):
 
 class MetricsLogger(TrainerCallback):
     @autoassign
-    def __init__(self, gameDataset, metics_file, conversation_file, config):
+    def __init__(self, gameDataset, metics_file, conversation_file, eval_conversation_file, config):
         print(f"Configuration:\n{config}\n\n\n", file=self.metics_file, flush=True)
         pass
 
@@ -109,11 +115,29 @@ class MetricsLogger(TrainerCallback):
         print(logs, file=self.metics_file)
     
     def on_epoch_begin(self, args, state, control, **kwargs):
-        print("EPOCH", state.epoch, file=self.conversation_file)
-        for c in self.gameDataset.full_conversations:
-            print(c.full_conversation, '\n\n', file=self.conversation_file)
+        Game = self.gameDataset.Game
 
-def game_reward(prompts, completions, conversation, train_llm_num, Game, train_llm, opponent_llm, config):
+        print("EPOCH", state.epoch, file=self.conversation_file)
+        print("dataset conversations", file=self.conversation_file)
+        for c in self.gameDataset.full_conversations:
+            w = c.get_moves()
+            print(c.full_conversation, '\n\n', file=self.conversation_file)
+            print('\n', "REWARD (Player-2):", Game.score(w[1], w[0]), file=self.conversation_file)
+        
+        if not self.gameDataset.eval_batch_shown:
+            print("eval conversations", file=self.conversation_file)
+            for c in self.gameDataset.eval_batch:
+                w = c.get_moves()
+                print(c.full_conversation, '\n', file=self.conversation_file)
+                print('\n', "REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.conversation_file)
+                
+            print("EPOCH", state.epoch, file=self.eval_conversation_file)
+            for c in self.gameDataset.eval_batch:
+                w = c.get_moves()
+                print(c, '\n', file=self.eval_conversation_file)
+                print('\n', "REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.eval_conversation_file)
+
+def game_reward(prompts, completions, conversation, train_llm_num, Game, train_llm, opponent_llm, conversation_file, config):
     print("\nComputing rewards", flush=True)
     conversations = [deepcopy(c) for c in conversation]
     for idx, action in enumerate(completions): conversations[idx].turn(action)
@@ -126,13 +150,10 @@ def game_reward(prompts, completions, conversation, train_llm_num, Game, train_l
         moves = [(w[1], w[0]) for w in moves]
     rewards = [Game.score(w[0], w[1]) for w in moves]
 
+    print('training conversations', file=conversation_file)
     for c, r in zip(conversation, rewards):
-        print("CONVERSATION:\n", c)
-        print("REWARD:", r, '\n'*3, flush=True)
-        c.reward = r
-        c.opponent_reward = Game.score(c.get_moves()[1], c.get_moves()[0])
-        c.num_interactions = len(c.get_moves())
-        c.conv_length = len(train_llm.tokenizer(c.full_conversation)['input_ids'])
+        print("CONVERSATION:\n", c, file=conversation_file)
+        print("REWARD:", r, '\n'*3, flush=True, file=conversation_file)
 
     print("Rewards computed", flush=True)
     return rewards

@@ -19,6 +19,7 @@ def __main__(config):
     general_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.general}", "w")
     metics_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.metrics}", "w")
     conversation_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.conversations}", "w")
+    eval_conversation_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.eval_conversations}", "w")
     sys.stdout = general_file
     sys.stderr = general_file
     os.environ["WANDB_PROJECT"] = config.wandb.project
@@ -28,11 +29,11 @@ def __main__(config):
 
     dataset = GameDataset(train_llm, opponent_llm, config)
     dataset_callback = OutdateDatasetCallback(dataset)
-    metrics_logger = MetricsLogger(dataset, metics_file, conversation_file, config)
+    metrics_logger = MetricsLogger(dataset, metics_file, conversation_file, eval_conversation_file, config)
     earlyStop = EarlyStoppingCallback(config.train.early_stopping_patience)
     callbacks = [dataset_callback, metrics_logger, earlyStop]
 
-    reward_mod = partial(game_reward, Game=dataset.Game, train_llm=train_llm, opponent_llm=opponent_llm, config=config)
+    reward_mod = partial(game_reward, Game=dataset.Game, train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
     update_wrapper(reward_mod, game_reward)
     
     GRPOConfig_params = set(inspect.signature(GRPOConfig.__init__).parameters)

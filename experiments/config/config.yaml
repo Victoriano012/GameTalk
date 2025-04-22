@@ -65,8 +65,9 @@ prompts:
 logs:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
-  conversations: "conversations.txt"
   metrics: "metrics.txt"
+  conversations: "conversations.txt"
+  eval_conversations: "eval_conversations.txt"
 
 run_name: "first-test"
 wandb:

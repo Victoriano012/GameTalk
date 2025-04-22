@@ -136,7 +136,7 @@ class ConversationManager:
     def get_subconversations(self, player_num):
         conv = ConversationManager(self.initial_prompt, self.other_moved_prompt, self.name_1, self.name_2, self.Game, self.max_interact)
         for idx, action in enumerate(self.all_actions):
-            if idx % 2 == player_num % 2:
+            if (idx+1) % 2 == player_num % 2:
                 yield deepcopy(conv)
             conv.turn(action)
         

@@ -91,7 +91,7 @@ def internalStateEvaluation(llm_trained, llm_opponent, Game, conversations):
     return kl
 
 
-bad_words = [""]
+bad_words = []
 def wordBasedLoss(conversation, train_llm_num):
     word_based_loss = 0.0
     player = conversation.player_1 if train_llm_num%2 == 1 else conversation.player_2
