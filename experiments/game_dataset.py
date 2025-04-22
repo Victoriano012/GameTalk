@@ -121,21 +121,21 @@ class MetricsLogger(TrainerCallback):
         print("dataset conversations", file=self.conversation_file)
         for c in self.gameDataset.full_conversations:
             w = c.get_moves()
-            print(c.full_conversation, '\n\n', file=self.conversation_file)
-            print('\n', "REWARD (Player-2):", Game.score(w[1], w[0]), file=self.conversation_file)
+            print(c.full_conversation, '\n', file=self.conversation_file)
+            print("REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.conversation_file)
         
         if not self.gameDataset.eval_batch_shown:
             print("eval conversations", file=self.conversation_file)
             for c in self.gameDataset.eval_batch:
                 w = c.get_moves()
                 print(c.full_conversation, '\n', file=self.conversation_file)
-                print('\n', "REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.conversation_file)
+                print("REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.conversation_file)
                 
             print("EPOCH", state.epoch, file=self.eval_conversation_file)
             for c in self.gameDataset.eval_batch:
                 w = c.get_moves()
                 print(c, '\n', file=self.eval_conversation_file)
-                print('\n', "REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.eval_conversation_file)
+                print("REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.eval_conversation_file)
 
 def game_reward(prompts, completions, conversation, train_llm_num, Game, train_llm, opponent_llm, conversation_file, config):
     print("\nComputing rewards", flush=True)
@@ -150,7 +150,7 @@ def game_reward(prompts, completions, conversation, train_llm_num, Game, train_l
         moves = [(w[1], w[0]) for w in moves]
     rewards = [Game.score(w[0], w[1]) for w in moves]
 
-    print('training conversations', file=conversation_file)
+    print('train conversations', file=conversation_file)
     for c, r in zip(conversation, rewards):
         print("CONVERSATION:\n", c, file=conversation_file)
         print("REWARD:", r, '\n'*3, flush=True, file=conversation_file)
