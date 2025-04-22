@@ -35,6 +35,7 @@ train:
 
   eval_steps: 20
   eval_samples : 32
+  eval_on_start : True
   logging_steps : 1
   save_steps : ${train.eval_steps}
   save_total_limit : 2
