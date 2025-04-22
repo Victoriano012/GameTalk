@@ -128,7 +128,7 @@ class BertrandCompetition():
             curr_player.moves.append("error")
         else:
             move = move.strip().lower()
-            if move[0] != '$' or not can_cast_to_int(move[1:]):
+            if len(move) == 0 or move[0] != '$' or not can_cast_to_int(move[1:]):
                 curr_player.moves.append("error")
             else: curr_player.moves.append(int(move[1:]))
         
