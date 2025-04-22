@@ -23,15 +23,17 @@ class RPS():
         self.ids = (id_1, id_2)
 
     def make_move(self, move, player_id):
+        if isinstance(player_id, int):
+            player_id = self.player_1.id if player_id%2 == 1 else self.player_2.id
         if player_id not in self.ids:
             raise ValueError("Invalid player ID")
     
+        curr_player, other_player = (self.player_1, self.player_2) if player_id == self.player_1.id else (self.player_2, self.player_1)
+        
         if move is None:
             if other_player.move is not None:
                 curr_player.move = RPS.ERROR
             return
-        
-        curr_player, other_player = (self.player_1, self.player_2) if player_id == self.player_1.id else (self.player_2, self.player_1)
 
         move = move.strip().lower()
         if move not in (RPS.ROCK, RPS.PAPER, RPS.SCISSORS):
