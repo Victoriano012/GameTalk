@@ -11,7 +11,7 @@ train:
   auto_find_batch_size : True
   num_generations: 8
   gradient_accumulation_steps : 1
-  early_stopping_patience: 5
+  early_stopping_patience: 10
   
   max_completion_length: 300
 
@@ -73,6 +73,7 @@ logs:
 run_name: "first-test"
 wandb:
   project: "rock-paper-scissors"
+  tags : ["iteration_3"]
 
 
 ###### Not modifiable configuration ######

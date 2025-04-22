@@ -30,10 +30,10 @@ def parse_last(text):
 
 
 class ConversationPlayer:
-    def __init__(self, initial_prompt, Game):
+    def __init__(self, initial_prompt, player_id, game):
         self.pov = initial_prompt
-        self.Game = Game
-        self.play = None
+        self.player_id = player_id
+        self.game = game
 
         self.starting_indices = []
         self.ending_indices = []
@@ -44,15 +44,17 @@ class ConversationPlayer:
         self.pov += "<|start_header_id|>assistant<|end_header_id|> <think>"
         self.starting_indices.append(len(self.pov))
 
+        curr_play = None
+
         if error:
             self.pov += parsed_action
-            self.play = self.Game("error")
+            curr_play = "error"
 
         else:
             self.parsed_actions.append(parsed_action)
 
             if 'play' in parsed_action:
-                self.play = self.Game(parsed_action['play'].lower().strip())
+                curr_play = parsed_action['play']
                 
             self.pov += parsed_action['think'] + "</think>\n"
             if 'talk' in parsed_action:
@@ -61,23 +63,23 @@ class ConversationPlayer:
                 self.pov += "<play>" + parsed_action['play'] + "</play> \n"
             self.pov += "<|eot_id|>"
 
+        self.game.make_move(curr_play, self.player_id)
         self.ending_indices.append(len(self.pov))
 
-    def other_turn(self, parsed_action, other_moved_prompt, error=False):
-        if error:
-            self.play = self.Game.default()
-        else:
-            if 'talk' in parsed_action:
-                self.pov += "<|start_header_id|>user<|end_header_id|>" + parsed_action['talk'].strip() + "\n<|eot_id|>"
-            if 'play' in parsed_action:
-                self.pov += other_moved_prompt
+    def other_turn(self, parsed_action, other_moved_prompt):
+        if 'talk' in parsed_action:
+            self.pov += "<|start_header_id|>user<|end_header_id|>" + parsed_action['talk'].strip() + "\n<|eot_id|>"
+        if 'play' in parsed_action:
+            self.pov += other_moved_prompt
 
 
 class ConversationManager:
     @autoassign
     def __init__(self, initial_prompt, other_moved_prompt, name_1, name_2, Game, max_interact):
-        self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2, max_interact=max_interact), Game)
-        self.player_2 = ConversationPlayer(initial_prompt.format(my_name=name_2, other_name=name_1, max_interact=max_interact), Game)
+        self.game = Game(name_1, name_2)
+
+        self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2, max_interact=max_interact), player_id=name_1, game = self.game)
+        self.player_2 = ConversationPlayer(initial_prompt.format(my_name=name_2, other_name=name_1, max_interact=max_interact), player_id=name_2, game = self.game)
 
         self.players = (self.player_1, self.player_2)
         self.names = (name_1, name_2)
@@ -97,15 +99,12 @@ class ConversationManager:
         return self.players[other_player].pov + "<|start_header_id|>assistant<|end_header_id|> <think>"
 
     def finished(self):
-        return self.player_1.play is not None and self.player_2.play is not None
+        return self.game.is_finished()
 
     def get_trainable(self, player_num, interaction_idx):
         player = self.player_1 if player_num == 1 else self.player_2
         att_idx = (player.starting_indices[interaction_idx], player.ending_indices[interaction_idx])
         return player.pov[:att_idx[1]], att_idx[0]
-
-    def get_moves(self):
-        return self.player_1.play, self.player_2.play
 
     def turn(self, action):
         self.num_interactions += 1
@@ -114,15 +113,11 @@ class ConversationManager:
             parsed_action = parse_last("<think>" + action)
         except (AssertionError, ParserRejectedMarkup) as e:
             self.players[0].my_turn(action, error=True)
-            self.players[1].other_turn(action, self.other_moved_prompt, error=True)
             self.full_conversation += self.names[0] + " did a format error:\n" + action + "\n"
             return
 
         self.players[0].my_turn(parsed_action)
         self.players[1].other_turn(parsed_action, self.other_moved_prompt)
-
-        if self.players[0].play is None and self.players[1].play is not None:
-            self.players[0].play = self.Game("error")
 
         self.full_conversation += self.names[0] + ":\n    <think>" + parsed_action['think'] + "</think>\n"
         if 'talk' in parsed_action:
@@ -134,9 +129,8 @@ class ConversationManager:
         self.names = (self.names[1], self.names[0])
     
     def get_subconversations(self, player_num):
-        conv = ConversationManager(self.initial_prompt, self.other_moved_prompt, self.name_1, self.name_2, self.Game, self.max_interact)
+        conv = ConversationManager(self.initial_prompt, self.other_moved_prompt, self.name_1, self.name_2, type(self.game), self.max_interact)
         for idx, action in enumerate(self.all_actions):
             if (idx+1) % 2 == player_num % 2:
                 yield deepcopy(conv)
             conv.turn(action)
-        

@@ -15,7 +15,7 @@ def masked_call(cls, queries, mask, unpack=True):
     return [next(output_iter) if m else "" for m in mask]
 
 
-
+"""
 def get_end_tokens(tokenizer, Game):
     moves = {item.value : item for item in Game if not item.is_error()}
     ends = [" " + name for name in list(moves)]
@@ -89,7 +89,7 @@ def internalStateEvaluation(llm_trained, llm_opponent, Game, conversations):
         kl += kl_div(player_1_estimation[x], player_2_strategy[x])
     kl /= len(player_1_estimation)
     return kl
-
+"""
 
 bad_words = []
 def wordBasedLoss(conversation, train_llm_num):

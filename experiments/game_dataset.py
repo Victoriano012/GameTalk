@@ -113,32 +113,27 @@ class MetricsLogger(TrainerCallback):
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         print("EPOCH", floor(state.epoch), "- STEP", state.global_step, file=self.metics_file, flush=True)
-        print(logs, file=self.metics_file)
+        print(logs, file=self.metics_file, flush=True)
     
     def on_epoch_begin(self, args, state, control, **kwargs):
-        Game = self.gameDataset.Game
-
         print("EPOCH", state.epoch, file=self.conversation_file)
         print("dataset conversations", file=self.conversation_file)
         for c in self.gameDataset.full_conversations:
-            w = c.get_moves()
             print(c.full_conversation, '\n', file=self.conversation_file)
-            print("REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.conversation_file)
+            print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.conversation_file, flush=True)
         
         if not self.gameDataset.eval_batch_shown:
             print("eval conversations", file=self.conversation_file)
             for c in self.gameDataset.eval_batch:
-                w = c.get_moves()
                 print(c.full_conversation, '\n', file=self.conversation_file)
-                print("REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.conversation_file)
+                print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.conversation_file, flush=True)
                 
             print("EPOCH", state.epoch, file=self.eval_conversation_file)
             for c in self.gameDataset.eval_batch:
-                w = c.get_moves()
                 print(c, '\n', file=self.eval_conversation_file)
-                print("REWARD (Player-2):", Game.score(w[1], w[0]), '\n\n', file=self.eval_conversation_file)
+                print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.eval_conversation_file, flush=True)
 
-def game_reward(prompts, completions, conversation, train_llm_num, Game, train_llm, opponent_llm, conversation_file, config):
+def game_reward(prompts, completions, conversation, train_llm_num, train_llm, opponent_llm, conversation_file, config):
     print("\nComputing rewards", flush=True)
     conversations = [deepcopy(c) for c in conversation]
     for idx, action in enumerate(completions): conversations[idx].turn(action)
@@ -146,10 +141,7 @@ def game_reward(prompts, completions, conversation, train_llm_num, Game, train_l
     train_llm_num = train_llm_num[0]
     conversation = finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
 
-    moves = [c.get_moves() for c in conversation]
-    if train_llm_num%2 == 0:
-        moves = [(w[1], w[0]) for w in moves]
-    rewards = [Game.score(w[0], w[1]) for w in moves]
+    rewards = [c.game.score(train_llm_num) for c in conversation]
 
     print('train conversations', file=conversation_file)
     for c, r in zip(conversation, rewards):

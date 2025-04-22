@@ -33,7 +33,7 @@ def __main__(config):
     earlyStop = EarlyStoppingCallback(config.train.early_stopping_patience)
     callbacks = [dataset_callback, metrics_logger, earlyStop]
 
-    reward_mod = partial(game_reward, Game=dataset.Game, train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
+    reward_mod = partial(game_reward, train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
     update_wrapper(reward_mod, game_reward)
     
     GRPOConfig_params = set(inspect.signature(GRPOConfig.__init__).parameters)

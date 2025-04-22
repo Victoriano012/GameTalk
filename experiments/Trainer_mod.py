@@ -31,17 +31,14 @@ class TrainerCustomEval(GRPOTrainer):
             for i in range(self.num_oom):
                 _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = eval_root_generations)
                 conversations_text = [c.full_conversation for c in full_conversations]
+                games = [c.game for c in full_conversations]
 
-                moves = [c.get_moves() for c in full_conversations]
-                if train_llm_num%2 == 0:
-                    moves = [(w[1], w[0]) for w in moves]
-
-                metrics["reward"] += sum(Game.score(w[0], w[1]) for w in moves)
-                metrics["opponent_reward"] += sum(Game.score(w[1], w[0]) for w in moves)
+                metrics["reward"] += sum(g.score(train_llm_num) for g in games)
+                metrics["opponent_reward"] += sum(g.score(3-train_llm_num) for g in games)
                 metrics["num_interactions"] += sum(c.num_interactions for c in full_conversations)
                 metrics["conv_length (tokens)"] += sum(len(tokens) for tokens in self.processing_class(conversations_text)['input_ids'])
 
-                game_metrics = Game.game_metrics(moves)
+                game_metrics = Game.game_metrics(games, train_llm_num)
                 for k, v in game_metrics.items():
                     metrics[k] += v
 
