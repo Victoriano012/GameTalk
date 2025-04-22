@@ -24,7 +24,7 @@ class RPS():
     SCISSORS = "scissors"
     ERROR = "error"
 
-    def __init__(self, id_1, id_2):
+    def __init__(self, id_1, id_2, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, move=None)
         self.player_2 = SimpleNamespace(id=id_2, move=None)
 
@@ -105,11 +105,12 @@ def can_cast_to_int(s):
 
 class BertrandCompetition():
     @autoassign
-    def __init__(self, id_1, id_2, cost, demand_den, max_cost_with_demand):
+    def __init__(self, id_1, id_2, cost, demand_den, max_price_with_demand, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, moves=[])
         self.player_2 = SimpleNamespace(id=id_2, moves=[])
 
         self.ids = (id_1, id_2)
+        self.__max_earnings = None
 
     def make_move(self, move, player_id):
         if isinstance(player_id, int):
@@ -161,14 +162,12 @@ class BertrandCompetition():
 
     def _demand_function(self, price, rival_price):
         if price > rival_price: return 0
-        elif price < rival_price: return (self.max_cost_with_demand - price) / self.demand_den
-        else: return (self.max_cost_with_demand - price) / (2 * self.demand_den)
+        elif price < rival_price: return (self.max_price_with_demand - price) // self.demand_den
+        else: return (self.max_price_with_demand - price) // (2 * self.demand_den)
         
     def _max_earnings(self):
         if self.__max_earnings is None:
-            self.__max_earnings = 0
-            for p in range(self.max_cost_with_demand+1):
-                self.__max_earnings = max(self.__max_earnings, (p-self.cost) * self._demand_function(p, self.max_cost_with_demand+2))
+            self.__max_earnings = max((p-self.cost) * self._demand_function(p, self.max_price_with_demand+2) for p in range(self.cost, self.max_price_with_demand))
         return self.__max_earnings
 
 
@@ -181,7 +180,7 @@ class SizePrizeGame():
     ACCEPT = "accept"
 
     @autoassign
-    def __init__(self, id_1, id_2, buyer_num, product_name, cost, initial_value):
+    def __init__(self, id_1, id_2, buyer_num, product_name, cost, initial_value, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, move=None)
         self.player_2 = SimpleNamespace(id=id_2, move=None)
 

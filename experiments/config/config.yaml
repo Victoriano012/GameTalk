@@ -26,12 +26,6 @@ train:
   # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
   opponent_temperature : 0.6
   opponent_top_p : 0.9
-  
-  # TODO
-  method : "grpo" # "dpo" / "grpo"
-  dpo:
-    variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
-    average_log_prob : False
 
   eval_steps: 20
   eval_samples : 32
@@ -40,6 +34,12 @@ train:
   save_steps : ${train.eval_steps}
   save_total_limit : 2
   load_best_model_at_end : True
+  
+  # TODO
+  method : "grpo" # "dpo" / "grpo"
+  dpo:
+    variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
+    average_log_prob : False
 
 dataset:
   num_root_generations : 4
@@ -72,7 +72,7 @@ logs:
 
 run_name: "first-test"
 wandb:
-  project: "rock-paper-scissors"
+  project: ${dataset.game_name}
   tags : ["iteration_3"]
 
 

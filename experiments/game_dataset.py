@@ -45,7 +45,7 @@ def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, 
 
 class GameDataset(Dataset):
     @autoassign
-    def __init__(self, train_llm, opponent_llm, config):
+    def __init__(self, train_llm, opponent_llm, data, config):
         with open(config.prompts.folder + config.prompts.initial, "r") as file:
             self.initial_prompt = file.read()
         with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
@@ -81,11 +81,18 @@ class GameDataset(Dataset):
         if num_root_generations is None:
             num_root_generations = self.config.dataset.num_root_generations
         
+        if num_root_generations <= len(self.data[0]):
+            indices = random.sample(range(len(self.data[0])), k=num_root_generations)
+        else:
+            indices = random.choices(range(len(self.data[0])), k=num_root_generations)
+        initial_kwargs = [{key: values[i] for key, values in self.data.items()} for i in indices]
+
         conversations = [ConversationManager(
             self.initial_prompt, self.other_moved_prompt,
             self.config.dataset.player_1_name, self.config.dataset.player_2_name,
-            self.Game, self.config.dataset.max_interactions
-        ) for _ in range(num_root_generations) ]
+            self.Game, max_interact = self.config.dataset.max_interactions,
+            **initial_kwargs[i]
+        ) for i in range(num_root_generations) ]
 
         train_llm_num = self.config.dataset.trained_player
         if not isinstance(train_llm_num, int):

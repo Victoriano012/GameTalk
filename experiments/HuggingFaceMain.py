@@ -27,7 +27,8 @@ def __main__(config):
     train_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
     opponent_llm = LLM(config.llms.opponent_llm_name, unsloth=config.llms.unsloth).to('cuda')
 
-    dataset = GameDataset(train_llm, opponent_llm, config)
+    dataset = GameDataset(train_llm, opponent_llm, {'cost' : [100], 'demand_den' : [50], 'max_price_with_demand' : [1000], 'products' : ['phones']}, config) # BertrandCompetition
+    # dataset = GameDataset(train_llm, opponent_llm, {}, config) # RPS
     dataset_callback = OutdateDatasetCallback(dataset)
     metrics_logger = MetricsLogger(dataset, metics_file, conversation_file, eval_conversation_file, config)
     earlyStop = EarlyStoppingCallback(config.train.early_stopping_patience)

@@ -66,11 +66,11 @@ class ConversationPlayer:
 
 class ConversationManager:
     @autoassign
-    def __init__(self, initial_prompt, other_moved_prompt, name_1, name_2, Game, max_interact):
-        self.game = Game(name_1, name_2)
+    def __init__(self, initial_prompt, other_moved_prompt, name_1, name_2, Game, **initial_kwargs):
+        self.game = Game(name_1, name_2, **initial_kwargs)
 
-        self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2, max_interact=max_interact), player_id=name_1, game = self.game)
-        self.player_2 = ConversationPlayer(initial_prompt.format(my_name=name_2, other_name=name_1, max_interact=max_interact), player_id=name_2, game = self.game)
+        self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2, **initial_kwargs), player_id=name_1, game = self.game)
+        self.player_2 = ConversationPlayer(initial_prompt.format(my_name=name_2, other_name=name_1, **initial_kwargs), player_id=name_2, game = self.game)
 
         self.players = (self.player_1, self.player_2)
         self.names = (name_1, name_2)
