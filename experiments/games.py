@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from collections import defaultdict
 
 # Returns the game instance based on the game name
 def get_game(game_name: str):
@@ -6,9 +7,6 @@ def get_game(game_name: str):
         return RPS
     return None
 
-
-from enum import Enum
-from collections import defaultdict
 
 # rock-paper-scissors implementation
 class RPS():
@@ -80,5 +78,5 @@ class RPS():
 
         return metrics
     
-    def is_finished(move1, move2):
-        return move1 is not None and move2 is not None
+    def is_finished(self):
+        return self.player_1.move is not None and self.player_2.move is not None
