@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from collections import defaultdict
+from utils import autoassign
 
 # Returns the game instance based on the game name
 def get_game(game_name: str):
@@ -8,7 +9,7 @@ def get_game(game_name: str):
     return None
 
 
-# rock-paper-scissors implementation
+# rock-paper-scissors
 class RPS():
     ROCK = "rock"
     PAPER = "paper"
@@ -22,16 +23,18 @@ class RPS():
         self.ids = (id_1, id_2)
 
     def make_move(self, move, player_id):
-        move = move.strip().lower()
         if player_id not in self.ids:
             raise ValueError("Invalid player ID")
-        
-        curr_player, other_player = (self.player_1, self.player_2) if player_id == self.player_1.id else (self.player_2, self.player_1)
-
+    
         if move is None:
             if other_player.move is not None:
                 curr_player.move = RPS.ERROR
-        elif move not in (RPS.ROCK, RPS.PAPER, RPS.SCISSORS):
+            return
+        
+        curr_player, other_player = (self.player_1, self.player_2) if player_id == self.player_1.id else (self.player_2, self.player_1)
+
+        move = move.strip().lower()
+        if move not in (RPS.ROCK, RPS.PAPER, RPS.SCISSORS):
             curr_player.move = RPS.ERROR
         else:
             curr_player.move = move
@@ -54,7 +57,7 @@ class RPS():
         score = -1 if score == 2 else score
         return float(score+1)
         
-    def won_by_error(self, player_id):
+    def _won_by_error(self, player_id):
         if isinstance(player_id, int):
             player_id = self.player_1.id if player_id%2 == 1 else self.player_2.id
         if player_id not in self.ids:
@@ -74,7 +77,7 @@ class RPS():
         metrics["loss_rate"] = sum(1 for r in rewards if r <= 0.)
 
         metrics["lost_by_error (%)"] += sum(1 for r in rewards if r == -1.)
-        metrics["won_by_error (%)"] += sum(1 for g in games if g.won_by_error(player_id))
+        metrics["won_by_error (%)"] += sum(1 for g in games if g._won_by_error(player_id))
 
         return metrics
     

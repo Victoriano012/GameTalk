@@ -1,16 +1,7 @@
 from bs4.exceptions import ParserRejectedMarkup
 from bs4 import BeautifulSoup
 from copy import deepcopy
-import inspect
-
-def autoassign(init):
-    def wrapper(self, *args, **kwargs):
-        bound = inspect.signature(init).bind(self, *args, **kwargs)
-        bound.apply_defaults()
-        for name, value in list(bound.arguments.items())[1:]:  # skip self
-            setattr(self, name, value)
-        init(self, *args, **kwargs)
-    return wrapper
+from utils import autoassign
 
 def parse_last(text):
     # Regular expression to find all tags with content

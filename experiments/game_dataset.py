@@ -6,9 +6,10 @@ from copy import deepcopy
 from math import floor
 import random
 
-from conversation_manager import ConversationManager, autoassign
+from conversation_manager import ConversationManager
 from game_utils import masked_call
 from games import get_game
+from utils import autoassign
 
 @torch.no_grad()
 def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config):
