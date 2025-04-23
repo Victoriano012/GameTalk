@@ -52,6 +52,8 @@ dataset:
   player_2_name: "Player-2"
   trained_player: 2   # 1 or 2 or "both"
 
+  data : "/home/vc111/main/LLMGameTheory/experiments/data/RPS.pkl"
+
 
 lora:
   r: 32
@@ -59,12 +61,12 @@ lora:
   lora_dropout: 0.0
 
 prompts:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/prompts/RPS/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/RPS/"
   initial: "initial.txt"
   other_moved: "other_moved.txt"
 
 logs:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
   metrics: "metrics.txt"
   conversations: "conversations.txt"

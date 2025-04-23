@@ -97,12 +97,20 @@ class RPS():
         return move2 == RPS.ERROR or move2 == None
 
 
-def can_cast_to_int(s):
+def price_to_int(s):
+    s = s.strip().lower()
+    if not s:
+        return None
     try:
-        int(s)
-        return True
+        return int(s)
     except ValueError:
-        return False
+        pass
+    if s[0] != '$':
+        return None
+    try:
+        return int(s[1:])
+    except ValueError:
+        return None
 
 class BertrandCompetition():
     @autoassign
@@ -124,14 +132,11 @@ class BertrandCompetition():
         
         curr_player = self.player_1 if player_id == self.player_1.id else self.player_2
 
-        if move is None:
+        if move is None or move == "error":
             curr_player.moves.append("error")
         else:
-            move = move.strip().lower()
-            if len(move) == 0 or move[0] != '$' or not can_cast_to_int(move[1:]):
-                curr_player.moves.append("error")
-            else: curr_player.moves.append(int(move[1:]))
-        
+            price = price_to_int(move)
+            curr_player.moves.append(price if price is not None else "error")
     
     def score(self, player_id):
         if isinstance(player_id, int):

@@ -81,12 +81,15 @@ class GameDataset(Dataset):
         if num_root_generations is None:
             num_root_generations = self.config.dataset.num_root_generations
         
-        length = len(next(iter(self.data.values()))) if self.data else 0
-        if num_root_generations <= length:
-            indices = random.sample(range(length), k=num_root_generations)
+        if self.data:
+            length = len(next(iter(self.data.values())))
+            if num_root_generations <= length:
+                indices = random.sample(range(length), k=num_root_generations)
+            else:
+                indices = random.choices(range(length), k=num_root_generations)
+            initial_kwargs = [{key: values[i] for key, values in self.data.items()} for i in indices]
         else:
-            indices = random.choices(range(length), k=num_root_generations)
-        initial_kwargs = [{key: values[i] for key, values in self.data.items()} for i in indices]
+            initial_kwargs = [{} for _ in range(num_root_generations)]
 
         conversations = [ConversationManager(
             self.initial_prompt, self.other_moved_prompt,
@@ -129,17 +132,20 @@ class MetricsLogger(TrainerCallback):
         print("dataset conversations", file=self.conversation_file)
         for c in self.gameDataset.full_conversations:
             print(c.full_conversation, '\n', file=self.conversation_file)
+            print("REWARD (Player-1):", c.game.score(1), file=self.conversation_file, flush=True)
             print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.conversation_file, flush=True)
         
         if not self.gameDataset.eval_batch_shown:
             print("eval conversations", file=self.conversation_file)
             for c in self.gameDataset.eval_batch:
                 print(c.full_conversation, '\n', file=self.conversation_file)
+                print("REWARD (Player-1):", c.game.score(1), file=self.conversation_file, flush=True)
                 print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.conversation_file, flush=True)
                 
             print("EPOCH", state.epoch, file=self.eval_conversation_file)
             for c in self.gameDataset.eval_batch:
                 print(c, '\n', file=self.eval_conversation_file)
+                print("REWARD (Player-1):", c.game.score(1), file=self.eval_conversation_file, flush=True)
                 print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.eval_conversation_file, flush=True)
 
 def game_reward(prompts, completions, conversation, train_llm_num, train_llm, opponent_llm, conversation_file, config):

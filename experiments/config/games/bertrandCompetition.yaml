@@ -1,10 +1,14 @@
 # @package _global_
 
+train:
+  max_completion_length: 500
+
+dataset:
+  game_name: "bertrand-competition"
+  data : "/home/vc111/main/LLMGameTheory/experiments/data/BertrandCompetition.pkl"
+
 prompts:
   folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/BertrandCompetition/"
 
 logs:
   folder: "/home/vc111/main/LLMGameTheory/experiments/logs/BertrandCompetition/"
-  
-dataset:
-  game_name: "bertrand-competition"
