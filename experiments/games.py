@@ -142,7 +142,7 @@ class BertrandCompetition():
         else:
             price = price_to_int(move)
             curr_player.moves.append(price if price is not None else "error")
-            if player_id == self.player_1.id:
+            if price is None or player_id == self.player_1.id:
                 return None, None
             else:
                 price_1 = self.player_1.moves[-1]
