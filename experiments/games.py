@@ -31,6 +31,8 @@ class RPS():
 
         self.ids = (id_1, id_2)
 
+    # make_move returns my_kwargs and other_kwargs, to add intermediate prompts in the conversation
+    # kwargs=None -> No need for intermediate prompt
     def make_move(self, move, player_id):
         if isinstance(player_id, int):
             player_id = self.player_1.id if player_id%2 == 1 else self.player_2.id
@@ -42,13 +44,15 @@ class RPS():
         if move is None:
             if other_player.move is not None:
                 curr_player.move = RPS.ERROR
-            return
+            return None, None
 
         move = move.strip().lower()
         if move not in (RPS.ROCK, RPS.PAPER, RPS.SCISSORS):
             curr_player.move = RPS.ERROR
+            return None, None
         else:
             curr_player.move = move
+            return None, {}
     
     # move1 wins -> 2., move2 wins -> 0., tie -> 1.
     def score(self, player_id):
@@ -134,9 +138,18 @@ class BertrandCompetition():
 
         if move is None or move == "error":
             curr_player.moves.append("error")
+            return None, None
         else:
             price = price_to_int(move)
             curr_player.moves.append(price if price is not None else "error")
+            if player_id == self.player_1.id:
+                return None, None
+            else:
+                price_1 = self.player_1.moves[-1]
+                price_2 = self.player_2.moves[-1]
+                my_kwargs = {'my_price' : price_1, 'other_price' : price_2, 'my_benefit' : self._benefit(price_1, price_2)}
+                other_kwargs = {'my_price' : price_2, 'other_price' : price_1, 'my_benefit' : self._benefit(price_2, price_1)}
+                return my_kwargs, other_kwargs
     
     def score(self, player_id):
         if isinstance(player_id, int):
@@ -172,6 +185,9 @@ class BertrandCompetition():
         if len(moves2) == 0 and moves2[-1] == "error": moves2 = moves2[:-1]
         return min(len(moves1), len(moves2))
 
+    def _benefit(self, price_1, price_2):
+        return (price_1 - self.cost) * self._demand_function(price_1, price_2)
+    
     def _demand_function(self, price, rival_price):
         if price > rival_price: return 0
         elif price < rival_price: return (self.max_price_with_demand - price) // self.demand_den
@@ -216,6 +232,7 @@ class SizePrizeGame():
             else:
                 curr_player.move = proposal
                 other_player.move = None
+        return None, None
 
     def score(self, player_id, other=False):
         if isinstance(player_id, int):

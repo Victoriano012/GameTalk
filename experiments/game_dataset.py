@@ -48,8 +48,8 @@ class GameDataset(Dataset):
     def __init__(self, train_llm, opponent_llm, data, config):
         with open(config.prompts.folder + config.prompts.initial, "r") as file:
             self.initial_prompt = file.read()
-        with open(config.prompts.folder + config.prompts.other_moved, "r") as file:
-            self.other_moved_prompt = file.read()
+        with open(config.prompts.folder + config.prompts.intermediate, "r") as file:
+            self.intermediate_prompt = file.read()
         self.Game = get_game(config.dataset.game_name)
         self.update_batch()
         self.eval_batch_shown = True
@@ -92,7 +92,7 @@ class GameDataset(Dataset):
             initial_kwargs = [{} for _ in range(num_root_generations)]
 
         conversations = [ConversationManager(
-            self.initial_prompt, self.other_moved_prompt,
+            self.initial_prompt, self.intermediate_prompt,
             self.config.dataset.player_1_name, self.config.dataset.player_2_name,
             self.Game, max_interact = self.config.dataset.max_interactions,
             **initial_kwargs[i]

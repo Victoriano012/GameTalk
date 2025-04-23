@@ -63,7 +63,7 @@ lora:
 prompts:
   folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/RPS/"
   initial: "initial.txt"
-  other_moved: "other_moved.txt"
+  intermediate: "other_moved.txt"
 
 logs:
   folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"

@@ -31,7 +31,7 @@ class ConversationPlayer:
 
         self.parsed_actions = []
 
-    def my_turn(self, parsed_action, error=False):
+    def my_turn(self, parsed_action, intermediate_prompt=None, error=False):
         self.pov += "<|start_header_id|>assistant<|end_header_id|> <think>"
         self.starting_indices.append(len(self.pov))
 
@@ -54,19 +54,23 @@ class ConversationPlayer:
                 self.pov += "<play>" + parsed_action['play'] + "</play> \n"
             self.pov += "<|eot_id|>"
 
-        self.game.make_move(curr_play, self.player_id)
         self.ending_indices.append(len(self.pov))
 
-    def other_turn(self, parsed_action, other_moved_prompt):
+        my_kwargs, other_kwargs = self.game.make_move(curr_play, self.player_id)
+        if my_kwargs is not None:
+            self.pov += intermediate_prompt.format(**my_kwargs)
+        return other_kwargs
+
+    def other_turn(self, parsed_action, intermediate_prompt, other_kwargs):
         if 'talk' in parsed_action:
-            self.pov += "<|start_header_id|>user<|end_header_id|>" + parsed_action['talk'].strip() + "\n<|eot_id|>"
-        if 'play' in parsed_action:
-            self.pov += other_moved_prompt
+            self.pov += "<|start_header_id|>user<|end_header_id|>" + parsed_action['talk'].strip() + "<|eot_id|>\n"
+        if other_kwargs is not None:
+            self.pov += intermediate_prompt.format(**other_kwargs)
 
 
 class ConversationManager:
     @autoassign
-    def __init__(self, initial_prompt, other_moved_prompt, name_1, name_2, Game, **initial_kwargs):
+    def __init__(self, initial_prompt, intermediate_prompt, name_1, name_2, Game, **initial_kwargs):
         self.game = Game(name_1, name_2, **initial_kwargs)
 
         self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2, **initial_kwargs), player_id=name_1, game = self.game)
@@ -76,14 +80,14 @@ class ConversationManager:
         self.names = (name_1, name_2)
         self.num_interactions = 0
 
-        self.full_conversation = ""
+        self.full_conversation = str(initial_kwargs) + '\n'
         self.all_actions = []
     
     def __len__(self):
         return len(self.full_conversation)
 
     def __str__(self):
-        return "ConversationManager:\n" + self.full_conversation
+        return "ConversationManager: " + self.full_conversation
 
     # other player = True -> query the player who has just played
     def get_query(self, other_player=False):
@@ -107,8 +111,8 @@ class ConversationManager:
             self.full_conversation += self.names[0] + " did a format error:\n" + action + "\n"
             return
 
-        self.players[0].my_turn(parsed_action)
-        self.players[1].other_turn(parsed_action, self.other_moved_prompt)
+        other_kwargs = self.players[0].my_turn(parsed_action, self.intermediate_prompt)
+        self.players[1].other_turn(parsed_action, self.intermediate_prompt, other_kwargs)
 
         self.full_conversation += self.names[0] + ":\n    <think>" + parsed_action['think'] + "</think>\n"
         if 'talk' in parsed_action:
@@ -120,7 +124,7 @@ class ConversationManager:
         self.names = (self.names[1], self.names[0])
     
     def get_subconversations(self, player_num):
-        conv = ConversationManager(self.initial_prompt, self.other_moved_prompt, self.name_1, self.name_2, type(self.game), **self.initial_kwargs)
+        conv = ConversationManager(self.initial_prompt, self.intermediate_prompt, self.name_1, self.name_2, type(self.game), **self.initial_kwargs)
         for idx, action in enumerate(self.all_actions):
             if (idx+1) % 2 == player_num % 2:
                 yield deepcopy(conv)

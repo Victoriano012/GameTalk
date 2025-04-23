@@ -9,6 +9,7 @@ dataset:
 
 prompts:
   folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/BertrandCompetition/"
+  intermediate: "turn.txt"
 
 logs:
   folder: "/home/vc111/main/LLMGameTheory/experiments/logs/BertrandCompetition/"
