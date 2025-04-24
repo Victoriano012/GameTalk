@@ -11,7 +11,7 @@ train:
   auto_find_batch_size : True
   num_generations: 8
   gradient_accumulation_steps : 1
-  early_stopping_patience: 10
+  early_stopping_patience: 100
   
   max_completion_length: 300
 

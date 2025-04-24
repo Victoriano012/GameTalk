@@ -7,7 +7,7 @@ from math import floor
 import random
 
 from conversation_manager import ConversationManager
-from game_utils import masked_call
+from utils import masked_call
 from games import get_game
 from utils import autoassign
 

@@ -5,7 +5,7 @@ from collections import defaultdict
 import torch
 import math
 
-from game_utils import wordBasedLoss
+from metrics import wordBasedLoss
 
 
 # So far I only care about dataloader
