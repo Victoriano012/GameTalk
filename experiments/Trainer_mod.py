@@ -16,20 +16,21 @@ class TrainerCustomEval(GRPOTrainer):
         super().__init__(*args, **kwargs)
         self.eval_samples = eval_samples
         self.num_oom = 1
+        self.num_samples = eval_samples
 
     def evaluation_loop(self, dataloader, description, prediction_loss_only = None, ignore_keys = None, metric_key_prefix = "eval"):
     
         dataset = dataloader.dataset
         Game = dataset.Game
-        eval_root_generations = math.floor(self.eval_samples/self.num_oom)
+        num_iterations = math.floor(self.eval_samples/self.eval_root_generations)
 
         assert description == "Evaluation", "Oops, evaluation description is not Evaluation"
 
         print("\n\nEvaluation starts", flush=True)
         metrics = defaultdict(float)
         try:
-            for i in range(self.num_oom):
-                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = eval_root_generations)
+            for i in range(num_iterations):
+                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = self.eval_root_generations)
                 conversations_text = [c.full_conversation for c in full_conversations]
                 games = [c.game for c in full_conversations]
 
@@ -44,7 +45,7 @@ class TrainerCustomEval(GRPOTrainer):
 
                 metrics["word_based_loss"] += sum(wordBasedLoss(c, train_llm_num) for c in full_conversations)
 
-            num_samples = eval_root_generations*self.num_oom
+            num_samples = self.eval_root_generations*num_iterations
             for k in metrics:
                 metrics[k] /= num_samples
             metrics["normalized_relative_advantage"] = (metrics["reward"] - metrics["opponent_reward"]) / (metrics["reward"] + metrics["opponent_reward"])
@@ -58,7 +59,14 @@ class TrainerCustomEval(GRPOTrainer):
         
         except torch.cuda.OutOfMemoryError as e:
             print(f"OOM error during evaluation, # {self.num_oom}")
-            print(f"Reducing eval_root_generations from {math.floor(self.eval_samples/self.num_oom)} to {math.floor(self.eval_samples/(self.num_oom+1))}")
+            print(f"Reducing eval_root_generations from {self.eval_root_generations} to", end=" ")
 
             self.num_oom += 1
+            self.eval_root_generations = min(math.floor(self.eval_samples/self.num_oom), self.eval_root_generations-1)
+            
+            print(self.eval_root_generations)
+
+            if self.eval_root_generations <= 0:
+                print("Eval samples is 0, exiting")
+                raise e
             return self.evaluation_loop(dataloader, description, prediction_loss_only, ignore_keys, metric_key_prefix)
