@@ -5,7 +5,7 @@ train:
   metric_for_best_model : "normalized_relative_advantage"
 
 dataset:
-  game_name: "bertrand-competition"
+  game_name: "size-prize-bargaining-game"
   data : "/home/azureuser/main/LLMGameTheory/experiments/data/SPBargaining.pkl"
 
 prompts:

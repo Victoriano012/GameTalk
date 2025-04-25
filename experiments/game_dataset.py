@@ -101,9 +101,11 @@ class GameDataset(Dataset):
             player_A_num = round(random.random())+1
         for kwargs in initial_kwargs:
             kwargs["player_A_num"] = player_A_num
+        initial_prompt_1 = self.initial_prompt_A if kwargs["player_A_num"] == 1 else self.initial_prompt_B
+        initial_prompt_2 = self.initial_prompt_A if kwargs["player_A_num"] == 2 else self.initial_prompt_B
 
         conversations = [ConversationManager(
-            self.initial_prompt, self.intermediate_prompt,
+            initial_prompt_1, initial_prompt_2, self.intermediate_prompt,
             self.config.dataset.player_1_name, self.config.dataset.player_2_name,
             self.Game, max_interact = self.config.dataset.max_interactions,
             **initial_kwargs[i]

@@ -14,7 +14,6 @@ def get_game(game_name: str):
     if game_name == "bertrand-competition":
         return BertrandCompetition
     if game_name == "size-prize-bargaining-game":
-        raise ValueError("SizePrizeGame is not implemented yet")
         return SizePrizeGame
     return None
 
@@ -220,7 +219,7 @@ class SizePrizeGame():
     ACCEPT = "accept"
 
     @autoassign
-    def __init__(self, id_1, id_2, player_A_num, product_name, cost, initial_value, **kwargs):
+    def __init__(self, id_1, id_2, player_A_num, products, cost, value, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, move=None)
         self.player_2 = SimpleNamespace(id=id_2, move=None)
 
@@ -234,6 +233,10 @@ class SizePrizeGame():
             raise ValueError("Invalid player ID")
         
         curr_player, other_player = (self.player_1, self.player_2) if player_id == self.player_1.id else (self.player_2, self.player_1)
+        
+        if move is None:
+            curr_player.move = SizePrizeGame.ERROR
+            return None, None
 
         move = move.strip().lower()
         if move == SizePrizeGame.ACCEPT:
@@ -265,7 +268,7 @@ class SizePrizeGame():
         is_buyer = player_id == (self.player_1.id if self.buyer_num%2 == 1 else self.player_2.id)
         is_buyer ^= other
         if is_buyer:
-            return self.initial_value * harmonic(agreement['units']) - agreement['price']
+            return self.value * harmonic(agreement['units']) - agreement['price']
         else:
             return agreement['price'] - self.cost * agreement['units']
     
@@ -274,8 +277,11 @@ class SizePrizeGame():
         for g in games:
             u1 = g.score(player_id)
             u2 = g.score(player_id, other=True)
-            f = lambda a : -a*(u1**(a-1)) + (1-a)*(u2**(-a))
-            bargaining_power.append(bisect(f, 0, 1))
+            bp = 0.5 if u1 <= 0 and u2 <= 0 else 0. if u1 <= 0 else 1. if u2 <= 0 else "normal situation"
+            if bp == "normal situation":
+                f = lambda a : -a*(u1**(a-1)) + (1-a)*(u2**(-a))
+                bp = bisect(f, 0, 1)
+            bargaining_power.append(bp)
 
         return {"bargaining_power" : sum(bargaining_power) / len(games)}
         
@@ -290,12 +296,13 @@ class SizePrizeGame():
 
 
     def _read_proposal(self, string):
-        pattern = rf"^(\w+) {self.product} at price \$(\w+)$"
+        pattern = rf"^(\w+) units at \$(\w+)$"
         match = re.match(pattern, string)
         try:
             x = int(match.group(1))
             y = float(match.group(2))
             assert x >= 0
             return {'units' : x, 'price' : y}
-        except (ValueError, AssertionError):
+        except (ValueError, AssertionError, AttributeError):
+            # ValueError -> cannot cast, AssertionError -> x < 0, AttributeError -> no match
             return None
