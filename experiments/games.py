@@ -239,7 +239,7 @@ class SizePrizeGame():
             return None, None
 
         move = move.strip().lower()
-        if move == SizePrizeGame.ACCEPT:
+        if move[len(SizePrizeGame.ACCEPT):] == SizePrizeGame.ACCEPT:
             curr_player.move = SizePrizeGame.ACCEPT
         else:
             proposal = self._read_proposal(move)
@@ -294,15 +294,22 @@ class SizePrizeGame():
     def show_moves():
         return True
 
-
-    def _read_proposal(self, string):
-        pattern = rf"^(\w+) units at \$(\w+)$"
-        match = re.match(pattern, string)
-        try:
-            x = int(match.group(1))
-            y = float(match.group(2))
-            assert x >= 0
-            return {'units' : x, 'price' : y}
-        except (ValueError, AssertionError, AttributeError):
-            # ValueError -> cannot cast, AssertionError -> x < 0, AttributeError -> no match
-            return None
+    @staticmethod
+    def _read_proposal(string):
+        patterns = [
+            r"^(\d+) units at \$(\d+(\.\d+)?)$",
+            r"^(\d+) unit at \$(\d+(\.\d+)?)$",
+            r"^(\d+) units at (\d+(\.\d+)?)$",
+            r"^(\d+) unit at (\d+(\.\d+)?)$"
+        ]
+        for pattern in patterns:
+            try:
+                match = re.match(pattern, string)
+                x = int(match.group(1))
+                y = float(match.group(2))
+                assert x >= 0
+                return {'units' : x, 'price' : y}
+            except (ValueError, AssertionError, AttributeError):
+                # ValueError -> cannot cast, AssertionError -> x < 0, AttributeError -> no match
+                pass
+        return None

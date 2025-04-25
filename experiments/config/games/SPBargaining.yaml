@@ -1,7 +1,7 @@
 # @package _global_
 
 train:
-  max_completion_length: 300
+  max_completion_length: 500
   metric_for_best_model : "normalized_relative_advantage"
 
 dataset:
