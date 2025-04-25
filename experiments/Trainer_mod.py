@@ -15,21 +15,22 @@ class TrainerCustomEval(GRPOTrainer):
     def __init__(self, eval_samples, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.eval_samples = eval_samples
+        self.root_gens_iteration = eval_samples
         self.num_oom = 1
 
     def evaluation_loop(self, dataloader, description, prediction_loss_only = None, ignore_keys = None, metric_key_prefix = "eval"):
     
         dataset = dataloader.dataset
         Game = dataset.Game
-        eval_root_generations = math.floor(self.eval_samples/self.num_oom)
+        num_iterations = math.floor(self.eval_samples/self.root_gens_iteration)
 
         assert description == "Evaluation", "Oops, evaluation description is not Evaluation"
 
         print("\n\nEvaluation starts", flush=True)
         metrics = defaultdict(float)
         try:
-            for i in range(self.num_oom):
-                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = eval_root_generations)
+            for i in range(num_iterations):
+                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = self.root_gens_iteration)
                 conversations_text = [c.full_conversation for c in full_conversations]
                 games = [c.game for c in full_conversations]
 
@@ -37,6 +38,7 @@ class TrainerCustomEval(GRPOTrainer):
                 metrics["opponent_reward"] += sum(g.score(3-train_llm_num) for g in games)
                 metrics["num_interactions"] += sum(c.num_interactions for c in full_conversations)
                 metrics["conv_length (tokens)"] += sum(len(tokens) for tokens in self.processing_class(conversations_text)['input_ids'])
+                metrics["finished_by_error"] += sum(1 for g in games if g.is_error())
 
                 game_metrics = Game.game_metrics(games, train_llm_num)
                 for k, v in game_metrics.items():
@@ -44,13 +46,16 @@ class TrainerCustomEval(GRPOTrainer):
 
                 metrics["word_based_loss"] += sum(wordBasedLoss(c, train_llm_num) for c in full_conversations)
 
-            num_samples = eval_root_generations*self.num_oom
+            num_samples = self.root_gens_iteration*num_iterations
             for k in metrics:
                 metrics[k] /= num_samples
-            metrics["normalized_relative_advantage"] = (metrics["reward"] - metrics["opponent_reward"]) / (metrics["reward"] + metrics["opponent_reward"])
+            
+            metrics["normalized_relative_advantage"] = 0. if metrics["reward"] == metrics["opponent_reward"] == 0 else \
+                (metrics["reward"] - metrics["opponent_reward"]) / (metrics["reward"] + metrics["opponent_reward"])
 
             # Prefix all keys with metric_key_prefix + '_'
-            for key in metrics:
+            metric_names = list(metrics.keys())
+            for key in metric_names:
                 if not key.startswith(f"{metric_key_prefix}_"):
                     metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 
@@ -58,7 +63,15 @@ class TrainerCustomEval(GRPOTrainer):
         
         except torch.cuda.OutOfMemoryError as e:
             print(f"OOM error during evaluation, # {self.num_oom}")
-            print(f"Reducing eval_root_generations from {math.floor(self.eval_samples/self.num_oom)} to {math.floor(self.eval_samples/(self.num_oom+1))}")
+            print(f"Reducing root_gens_iteration from {self.root_gens_iteration} to", end=" ")
 
             self.num_oom += 1
+            self.root_gens_iteration = min(math.floor(self.eval_samples/self.num_oom), self.root_gens_iteration-1)
+            
+            print(self.root_gens_iteration)
+
+            if self.root_gens_iteration <= 0:
+                print("EXIT: Eval samples is 0 (number of root generations per iteration is 0)")
+                raise AssertionError("Not enough memory to evaluate")
+            
             return self.evaluation_loop(dataloader, description, prediction_loss_only, ignore_keys, metric_key_prefix)

@@ -1,19 +1,22 @@
-from trl import GRPOConfig, GRPOTrainer
+from trl import GRPOConfig
 from transformers import EarlyStoppingCallback
-from Trainer_mod import TrainerCustomEval
 
 from functools import partial, update_wrapper
+from pickle import load
 import inspect
 import hydra
 import sys
 import os
 
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
+from Trainer_mod import TrainerCustomEval
 from llm_utils import LLM
 
 
 @hydra.main(config_path='config', config_name='config', version_base=None)
 def __main__(config):
+    
+    os.environ["WANDB_PROJECT"] = config.wandb.project
     
     os.makedirs(f"{config.logs.folder}{config.run_name}", exist_ok=True)
     general_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.general}", "w")
@@ -22,12 +25,14 @@ def __main__(config):
     eval_conversation_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.eval_conversations}", "w")
     sys.stdout = general_file
     sys.stderr = general_file
-    os.environ["WANDB_PROJECT"] = config.wandb.project
 
     train_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
     opponent_llm = LLM(config.llms.opponent_llm_name, unsloth=config.llms.unsloth).to('cuda')
 
-    dataset = GameDataset(train_llm, opponent_llm, config)
+    with open(config.dataset.data, 'rb') as f:
+        data = load(f)
+    dataset = GameDataset(train_llm, opponent_llm, data, config)
+
     dataset_callback = OutdateDatasetCallback(dataset)
     metrics_logger = MetricsLogger(dataset, metics_file, conversation_file, eval_conversation_file, config)
     earlyStop = EarlyStoppingCallback(config.train.early_stopping_patience)
@@ -47,7 +52,6 @@ def __main__(config):
         eval_strategy="steps",
         max_prompt_length=None,
         logging_first_step = True,
-        metric_for_best_model = "reward",
 
         temperature=config.train.trained_temperature,
     )

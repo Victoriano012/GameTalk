@@ -12,10 +12,9 @@ train:
   num_generations: 8
   gradient_accumulation_steps : 1
   early_stopping_patience: 100
+  metric_for_best_model : "reward"
   
   max_completion_length: 300
-
-  gamma : 1 # TODO (should rewrite compute_loss, not trivial)
 
   beta: 0.1 # kl_coef
   epsilon : 0.2 # ppo_epsilon
@@ -26,12 +25,6 @@ train:
   # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
   opponent_temperature : 0.6
   opponent_top_p : 0.9
-  
-  # TODO
-  method : "grpo" # "dpo" / "grpo"
-  dpo:
-    variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
-    average_log_prob : False
 
   eval_steps: 20
   eval_samples : 32
@@ -40,6 +33,15 @@ train:
   save_steps : ${train.eval_steps}
   save_total_limit : 2
   load_best_model_at_end : True
+  
+  # TODO
+  method : "grpo" # "dpo" / "grpo"
+  dpo:
+    variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
+    average_log_prob : False
+
+  gamma : 1 # TODO (should rewrite compute_loss, not trivial)
+
 
 dataset:
   num_root_generations : 4
@@ -50,7 +52,10 @@ dataset:
 
   player_1_name: "Player-1"
   player_2_name: "Player-2"
-  trained_player: 2   # 1 or 2 or "both"
+  trained_player: 2  # 1 or 2 or "both"
+  player_A_num: 2    # 1 or 2 or "both" (for SPbargaining)
+
+  data : "/home/azureuser/main/LLMGameTheory/experiments/data/RPS.pkl"
 
 
 lora:
@@ -60,8 +65,9 @@ lora:
 
 prompts:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/prompts/RPS/"
-  initial: "initial.txt"
-  other_moved: "other_moved.txt"
+  initial_A: "initial.txt"
+  initial_B: "initial.txt"
+  intermediate: "other_moved.txt"
 
 logs:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
@@ -72,7 +78,7 @@ logs:
 
 run_name: "first-test"
 wandb:
-  project: "rock-paper-scissors"
+  project: ${dataset.game_name}
   tags : ["iteration_3"]
 
 

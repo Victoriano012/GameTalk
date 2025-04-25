@@ -1,0 +1,1 @@
+<|start_header_id|>system<|end_header_id|> Your price this round was ${my_price}, user's price was ${other_price}. Thus, your benefits are ${my_benefit}. You should now play the next round. <|eot_id|>
