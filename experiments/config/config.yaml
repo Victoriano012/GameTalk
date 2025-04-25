@@ -52,7 +52,8 @@ dataset:
 
   player_1_name: "Player-1"
   player_2_name: "Player-2"
-  trained_player: 2   # 1 or 2 or "both"
+  trained_player: 2  # 1 or 2 or "both"
+  player_A_num: 2    # 1 or 2 or "both" (for SPbargaining)
 
   data : "/home/azureuser/main/LLMGameTheory/experiments/data/RPS.pkl"
 
@@ -64,7 +65,8 @@ lora:
 
 prompts:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/prompts/RPS/"
-  initial: "initial.txt"
+  initial_A: "initial.txt"
+  initial_B: "initial.txt"
   intermediate: "other_moved.txt"
 
 logs:

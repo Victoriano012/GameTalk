@@ -46,8 +46,10 @@ def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, 
 class GameDataset(Dataset):
     @autoassign
     def __init__(self, train_llm, opponent_llm, data, config):
-        with open(config.prompts.folder + config.prompts.initial, "r") as file:
-            self.initial_prompt = file.read()
+        with open(config.prompts.folder + config.prompts.initial_A, "r") as file:
+            self.initial_prompt_A = file.read()
+        with open(config.prompts.folder + config.prompts.initial_B, "r") as file:
+            self.initial_prompt_B = file.read()
         with open(config.prompts.folder + config.prompts.intermediate, "r") as file:
             self.intermediate_prompt = file.read()
         self.Game = get_game(config.dataset.game_name)
@@ -91,6 +93,15 @@ class GameDataset(Dataset):
         else:
             initial_kwargs = [{} for _ in range(num_root_generations)]
 
+        train_llm_num = self.config.dataset.trained_player
+        if not isinstance(train_llm_num, int):
+            train_llm_num = round(random.random())+1
+        player_A_num = self.config.dataset.player_A_num
+        if not isinstance(player_A_num, int):
+            player_A_num = round(random.random())+1
+        for kwargs in initial_kwargs:
+            kwargs["player_A_num"] = player_A_num
+
         conversations = [ConversationManager(
             self.initial_prompt, self.intermediate_prompt,
             self.config.dataset.player_1_name, self.config.dataset.player_2_name,
@@ -98,9 +109,6 @@ class GameDataset(Dataset):
             **initial_kwargs[i]
         ) for i in range(num_root_generations) ]
 
-        train_llm_num = self.config.dataset.trained_player
-        if not isinstance(train_llm_num, int):
-            train_llm_num = round(random.random())+1
         conversations = finish_conversations(conversations, self.train_llm, self.opponent_llm, train_llm_num, self.config)
 
         all_subconversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]

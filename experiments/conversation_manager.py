@@ -63,18 +63,21 @@ class ConversationPlayer:
 
     def other_turn(self, parsed_action, intermediate_prompt, other_kwargs):
         if 'talk' in parsed_action:
-            self.pov += "<|start_header_id|>user<|end_header_id|>" + parsed_action['talk'].strip() + "<|eot_id|>\n"
+            self.pov += "<|start_header_id|>user<|end_header_id|>" + parsed_action['talk'].strip()
+            if 'play' in parsed_action and self.game.show_moves():
+                self.pov += "\n<play>" + parsed_action['play'] + "</play>"
+            self.pov += "<|eot_id|>\n"
         if other_kwargs is not None:
             self.pov += intermediate_prompt.format(**other_kwargs)
 
 
 class ConversationManager:
     @autoassign
-    def __init__(self, initial_prompt, intermediate_prompt, name_1, name_2, Game, **initial_kwargs):
+    def __init__(self, initial_prompt_1, initial_prompt_2, intermediate_prompt, name_1, name_2, Game, **initial_kwargs):
         self.game = Game(name_1, name_2, **initial_kwargs)
 
-        self.player_1 = ConversationPlayer(initial_prompt.format(my_name=name_1, other_name=name_2, **initial_kwargs), player_id=name_1, game = self.game)
-        self.player_2 = ConversationPlayer(initial_prompt.format(my_name=name_2, other_name=name_1, **initial_kwargs), player_id=name_2, game = self.game)
+        self.player_1 = ConversationPlayer(initial_prompt_1.format(my_name=name_1, other_name=name_2, **initial_kwargs), player_id=name_1, game = self.game)
+        self.player_2 = ConversationPlayer(initial_prompt_2.format(my_name=name_2, other_name=name_1, **initial_kwargs), player_id=name_2, game = self.game)
 
         self.players = (self.player_1, self.player_2)
         self.names = (name_1, name_2)
@@ -124,7 +127,7 @@ class ConversationManager:
         self.names = (self.names[1], self.names[0])
     
     def get_subconversations(self, player_num):
-        conv = ConversationManager(self.initial_prompt, self.intermediate_prompt, self.name_1, self.name_2, type(self.game), **self.initial_kwargs)
+        conv = ConversationManager(self.initial_prompt_1, self.initial_prompt_2, self.intermediate_prompt, self.name_1, self.name_2, type(self.game), **self.initial_kwargs)
         for idx, action in enumerate(self.all_actions):
             if (idx+1) % 2 == player_num % 2:
                 yield deepcopy(conv)

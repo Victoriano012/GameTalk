@@ -101,6 +101,11 @@ class RPS():
         if move1 == RPS.ERROR or move1 == None: return False
         return move2 == RPS.ERROR or move2 == None
 
+    @staticmethod
+    def show_moves():
+        return False
+
+
 
 def price_to_int(s):
     s = s.strip().lower()
@@ -180,6 +185,11 @@ class BertrandCompetition():
         p1_error = len(self.player_1.moves) > 0 and self.player_1.moves[-1] == 'error'
         p2_error = len(self.player_2.moves) > 0 and self.player_2.moves[-1] == 'error'
         return p1_error or p2_error
+        
+    @staticmethod
+    def show_moves():
+        return False
+
 
     def _len(self):
         if len(moves1) == 0 and moves1[-1] == "error": moves1 = moves1[:-1]
@@ -210,11 +220,12 @@ class SizePrizeGame():
     ACCEPT = "accept"
 
     @autoassign
-    def __init__(self, id_1, id_2, buyer_num, product_name, cost, initial_value, **kwargs):
+    def __init__(self, id_1, id_2, player_A_num, product_name, cost, initial_value, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, move=None)
         self.player_2 = SimpleNamespace(id=id_2, move=None)
 
         self.ids = (id_1, id_2)
+        self.buyer_num = player_A_num
 
     def make_move(self, move, player_id):
         if isinstance(player_id, int):
@@ -245,17 +256,18 @@ class SizePrizeGame():
         move1, move2 = self.player_1.move, self.player_2.move
 
         if move1 == SizePrizeGame.ERROR or move2 == SizePrizeGame.ERROR: return 0.
+        if move1 is None or move2 is None: return 0.
         
         if move1 == SizePrizeGame.ACCEPT: agreement = move2
         elif move2 == SizePrizeGame.ACCEPT: agreement = move1
-        else: return 0.
+        else: return 0. # This cannot happen, I think
 
         is_buyer = player_id == (self.player_1.id if self.buyer_num%2 == 1 else self.player_2.id)
         is_buyer ^= other
         if is_buyer:
-            return self.initial_value * harmonic(agreement[0]) - agreement[1]
+            return self.initial_value * harmonic(agreement['units']) - agreement['price']
         else:
-            return agreement[1] - self.cost * agreement[0]
+            return agreement['price'] - self.cost * agreement['units']
     
     def game_metrics(games, player_id):
         bargaining_power = []
@@ -272,6 +284,10 @@ class SizePrizeGame():
         p2_done = self.player_2.move in (SizePrizeGame.ACCEPT, SizePrizeGame.ERROR)
         return p1_done or p2_done
 
+    @staticmethod
+    def show_moves():
+        return True
+
 
     def _read_proposal(self, string):
         pattern = rf"^(\w+) {self.product} at price \$(\w+)$"
@@ -280,6 +296,6 @@ class SizePrizeGame():
             x = int(match.group(1))
             y = float(match.group(2))
             assert x >= 0
-            return x, y
+            return {'units' : x, 'price' : y}
         except (ValueError, AssertionError):
             return None
