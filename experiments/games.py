@@ -275,9 +275,9 @@ class SizePrizeGame():
         is_buyer = player_id == (self.player_1.id if self.buyer_num%2 == 1 else self.player_2.id)
         is_buyer ^= other
         if is_buyer:
-            return self.value * harmonic(agreement['units']) - agreement['price']
+            return self.value * harmonic(agreement['units']) - agreement['price']*agreement['units']
         else:
-            return agreement['price'] - self.cost * agreement['units']
+            return agreement['units'] * (agreement['price'] - self.cost)
     
     def game_metrics(games, player_id):
         metrics = {}
@@ -311,10 +311,10 @@ class SizePrizeGame():
     @staticmethod
     def _read_proposal(string):
         patterns = [
-            r"^(\d+) units at \$(\d+(\.\d+)?)$",
-            r"^(\d+) unit at \$(\d+(\.\d+)?)$",
-            r"^(\d+) units at (\d+(\.\d+)?)$",
-            r"^(\d+) unit at (\d+(\.\d+)?)$"
+            r"(\d+) units at \$(\d+(\.\d+)?) each",
+            r"(\d+) unit at \$(\d+(\.\d+)?) each",
+            r"(\d+) units at (\d+(\.\d+)?) each",
+            r"(\d+) unit at (\d+(\.\d+)?) each"
         ]
         for pattern in patterns:
             try:
