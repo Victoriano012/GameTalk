@@ -14,6 +14,7 @@ def get_game(game_name: str):
     if game_name == "bertrand-competition":
         return BertrandCompetition
     if game_name == "size-prize-bargaining-game":
+        raise ValueError("SizePrizeGame is not implemented yet")
         return SizePrizeGame
     return None
 
@@ -190,8 +191,8 @@ class BertrandCompetition():
     
     def _demand_function(self, price, rival_price):
         if price > rival_price: return 0
-        elif price < rival_price: return (self.max_price_with_demand - price) // self.demand_den
-        else: return (self.max_price_with_demand - price) // (2 * self.demand_den)
+        elif price < rival_price: return max(0, (self.max_price_with_demand - price) // self.demand_den )
+        else: return max(0, (self.max_price_with_demand - price) // (2 * self.demand_den) )
         
     def _max_earnings(self):
         if self.__max_earnings is None:

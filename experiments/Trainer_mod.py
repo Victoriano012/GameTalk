@@ -15,14 +15,14 @@ class TrainerCustomEval(GRPOTrainer):
     def __init__(self, eval_samples, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.eval_samples = eval_samples
+        self.root_gens_iteration = eval_samples
         self.num_oom = 1
-        self.num_samples = eval_samples
 
     def evaluation_loop(self, dataloader, description, prediction_loss_only = None, ignore_keys = None, metric_key_prefix = "eval"):
     
         dataset = dataloader.dataset
         Game = dataset.Game
-        num_iterations = math.floor(self.eval_samples/self.eval_root_generations)
+        num_iterations = math.floor(self.eval_samples/self.root_gens_iteration)
 
         assert description == "Evaluation", "Oops, evaluation description is not Evaluation"
 
@@ -30,7 +30,7 @@ class TrainerCustomEval(GRPOTrainer):
         metrics = defaultdict(float)
         try:
             for i in range(num_iterations):
-                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = self.eval_root_generations)
+                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = self.root_gens_iteration)
                 conversations_text = [c.full_conversation for c in full_conversations]
                 games = [c.game for c in full_conversations]
 
@@ -45,7 +45,7 @@ class TrainerCustomEval(GRPOTrainer):
 
                 metrics["word_based_loss"] += sum(wordBasedLoss(c, train_llm_num) for c in full_conversations)
 
-            num_samples = self.eval_root_generations*num_iterations
+            num_samples = self.root_gens_iteration*num_iterations
             for k in metrics:
                 metrics[k] /= num_samples
             metrics["normalized_relative_advantage"] = (metrics["reward"] - metrics["opponent_reward"]) / (metrics["reward"] + metrics["opponent_reward"])
@@ -59,14 +59,15 @@ class TrainerCustomEval(GRPOTrainer):
         
         except torch.cuda.OutOfMemoryError as e:
             print(f"OOM error during evaluation, # {self.num_oom}")
-            print(f"Reducing eval_root_generations from {self.eval_root_generations} to", end=" ")
+            print(f"Reducing root_gens_iteration from {self.root_gens_iteration} to", end=" ")
 
             self.num_oom += 1
-            self.eval_root_generations = min(math.floor(self.eval_samples/self.num_oom), self.eval_root_generations-1)
+            self.root_gens_iteration = min(math.floor(self.eval_samples/self.num_oom), self.root_gens_iteration-1)
             
-            print(self.eval_root_generations)
+            print(self.root_gens_iteration)
 
-            if self.eval_root_generations <= 0:
-                print("Eval samples is 0, exiting")
-                raise e
+            if self.root_gens_iteration <= 0:
+                print("EXIT: Eval samples is 0 (number of root generations per iteration is 0)")
+                raise AssertionError("Not enough memory to evaluate")
+            
             return self.evaluation_loop(dataloader, description, prediction_loss_only, ignore_keys, metric_key_prefix)

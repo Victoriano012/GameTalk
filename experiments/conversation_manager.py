@@ -59,7 +59,7 @@ class ConversationPlayer:
         my_kwargs, other_kwargs = self.game.make_move(curr_play, self.player_id)
         if my_kwargs is not None:
             self.pov += intermediate_prompt.format(**my_kwargs)
-        return other_kwargs
+        return my_kwargs, other_kwargs
 
     def other_turn(self, parsed_action, intermediate_prompt, other_kwargs):
         if 'talk' in parsed_action:
@@ -96,11 +96,6 @@ class ConversationManager:
     def finished(self):
         return self.game.is_finished()
 
-    def get_trainable(self, player_num, interaction_idx):
-        player = self.player_1 if player_num == 1 else self.player_2
-        att_idx = (player.starting_indices[interaction_idx], player.ending_indices[interaction_idx])
-        return player.pov[:att_idx[1]], att_idx[0]
-
     def turn(self, action):
         self.num_interactions += 1
         self.all_actions.append(action)
@@ -111,7 +106,7 @@ class ConversationManager:
             self.full_conversation += self.names[0] + " did a format error:\n" + action + "\n"
             return
 
-        other_kwargs = self.players[0].my_turn(parsed_action, self.intermediate_prompt)
+        my_kwargs, other_kwargs = self.players[0].my_turn(parsed_action, self.intermediate_prompt)
         self.players[1].other_turn(parsed_action, self.intermediate_prompt, other_kwargs)
 
         self.full_conversation += self.names[0] + ":\n    <think>" + parsed_action['think'] + "</think>\n"
@@ -120,6 +115,11 @@ class ConversationManager:
         if 'play' in parsed_action:
             self.full_conversation += "    <play>" + parsed_action['play'] + "</play> \n"
         
+        if my_kwargs is not None:
+            self.full_conversation += self.names[0] + " pov:\n" + self.intermediate_prompt.format(**my_kwargs) + "\n"
+        if other_kwargs is not None:
+            self.full_conversation += self.names[1] + " pov:\n" + self.intermediate_prompt.format(**other_kwargs) + "\n"
+
         self.players = (self.players[1], self.players[0])
         self.names = (self.names[1], self.names[0])
     

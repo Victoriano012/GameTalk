@@ -11,7 +11,7 @@ train:
   auto_find_batch_size : True
   num_generations: 8
   gradient_accumulation_steps : 1
-  early_stopping_patience: 10
+  early_stopping_patience: 100
   
   max_completion_length: 300
 
@@ -52,7 +52,7 @@ dataset:
   player_2_name: "Player-2"
   trained_player: 2   # 1 or 2 or "both"
 
-  data : "/home/vc111/main/LLMGameTheory/experiments/data/RPS.pkl"
+  data : "/home/azureuser/main/LLMGameTheory/experiments/data/RPS.pkl"
 
 
 lora:
@@ -61,12 +61,12 @@ lora:
   lora_dropout: 0.0
 
 prompts:
-  folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/RPS/"
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/prompts/RPS/"
   initial: "initial.txt"
   intermediate: "other_moved.txt"
 
 logs:
-  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
   metrics: "metrics.txt"
   conversations: "conversations.txt"
