@@ -52,7 +52,6 @@ def __main__(config):
         eval_strategy="steps",
         max_prompt_length=None,
         logging_first_step = True,
-        metric_for_best_model = "reward",
 
         temperature=config.train.trained_temperature,
     )

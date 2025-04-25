@@ -12,10 +12,9 @@ train:
   num_generations: 8
   gradient_accumulation_steps : 1
   early_stopping_patience: 100
+  metric_for_best_model : "reward"
   
   max_completion_length: 300
-
-  gamma : 1 # TODO (should rewrite compute_loss, not trivial)
 
   beta: 0.1 # kl_coef
   epsilon : 0.2 # ppo_epsilon
@@ -40,6 +39,9 @@ train:
   dpo:
     variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
     average_log_prob : False
+
+  gamma : 1 # TODO (should rewrite compute_loss, not trivial)
+
 
 dataset:
   num_root_generations : 4

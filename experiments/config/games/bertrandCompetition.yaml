@@ -2,6 +2,7 @@
 
 train:
   max_completion_length: 500
+  metric_for_best_model : "normalized_relative_advantage"
 
 dataset:
   game_name: "bertrand-competition"

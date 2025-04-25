@@ -197,6 +197,7 @@ class BertrandCompetition():
     def _max_earnings(self):
         if self.__max_earnings is None:
             self.__max_earnings = max((p-self.cost) * self._demand_function(p, self.max_price_with_demand+2) for p in range(math.floor(self.cost), math.ceil(self.max_price_with_demand)))
+            # actually the best price is ~ (cost + max_price_with_demand)/2
         return self.__max_earnings
 
 
