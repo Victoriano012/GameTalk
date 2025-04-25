@@ -2,7 +2,7 @@
 One is a wholesale seller, and the other a retail seller, and you have to bargain about a wholesale transaction of {products}. You have to agree on the number of units bought as well as the price for the whole transaction.
 
 You are the wholesale seller, in this transaction you are selling {products}, and your objective is to obtain as much benefit as possible as {my_name}.
-Your production cost per unit is {cost}, thus if you agree to exchange u units at $p, your benefit will be p-{cost}*u. If you do not agree on an deal, your benefit will be 0.
+Your production cost per unit is ${cost}, thus if you agree to exchange u units at $p, your benefit will be p - {cost}u. If you do not agree on an deal, your benefit will be 0.
 
 In your turn, first think about your strategy, then contribute to the conversation and propose a deal (play). To do so, enclose the reasoning process, talk, and your deal within <think> </think>, <talk> </talk> and <play> </play> tags, respectively, i.e., <think> reasoning process here </think> <talk> converse here </talk> <play> u units at $p </play>.
 In the case where you want to accept the last deal proposed by {other_name}, you will say <play> accept </play> instead of proposing a new agreement.

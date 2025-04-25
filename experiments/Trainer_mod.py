@@ -38,6 +38,7 @@ class TrainerCustomEval(GRPOTrainer):
                 metrics["opponent_reward"] += sum(g.score(3-train_llm_num) for g in games)
                 metrics["num_interactions"] += sum(c.num_interactions for c in full_conversations)
                 metrics["conv_length (tokens)"] += sum(len(tokens) for tokens in self.processing_class(conversations_text)['input_ids'])
+                metrics["finished_by_error"] += sum(1 for g in games if g.is_error())
 
                 game_metrics = Game.game_metrics(games, train_llm_num)
                 for k, v in game_metrics.items():
@@ -53,7 +54,8 @@ class TrainerCustomEval(GRPOTrainer):
                 (metrics["reward"] - metrics["opponent_reward"]) / (metrics["reward"] + metrics["opponent_reward"])
 
             # Prefix all keys with metric_key_prefix + '_'
-            for key in metrics:
+            metric_names = list(metrics.keys())
+            for key in metric_names:
                 if not key.startswith(f"{metric_key_prefix}_"):
                     metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 

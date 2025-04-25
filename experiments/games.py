@@ -103,6 +103,9 @@ class RPS():
     @staticmethod
     def show_moves():
         return False
+        
+    def is_error(self):
+        return self.player_1.move == RPS.ERROR or self.player_2.move == RPS.ERROR
 
 
 
@@ -188,6 +191,10 @@ class BertrandCompetition():
     @staticmethod
     def show_moves():
         return False
+    
+    def is_error(self):
+        moves1, moves2 = self.player_1.moves, self.player_2.moves
+        return (len(moves1) != 0 and moves1[-1] == "error") or (len(moves2) != 0 and moves2[-1] == "error")
 
 
     def _len(self):
@@ -239,7 +246,7 @@ class SizePrizeGame():
             return None, None
 
         move = move.strip().lower()
-        if move[len(SizePrizeGame.ACCEPT):] == SizePrizeGame.ACCEPT:
+        if move[:len(SizePrizeGame.ACCEPT)] == SizePrizeGame.ACCEPT:
             curr_player.move = SizePrizeGame.ACCEPT
         else:
             proposal = self._read_proposal(move)
@@ -273,6 +280,8 @@ class SizePrizeGame():
             return agreement['price'] - self.cost * agreement['units']
     
     def game_metrics(games, player_id):
+        metrics = {}
+
         bargaining_power = []
         for g in games:
             u1 = g.score(player_id)
@@ -282,8 +291,10 @@ class SizePrizeGame():
                 f = lambda a : -a*(u1**(a-1)) + (1-a)*(u2**(-a))
                 bp = bisect(f, 0, 1)
             bargaining_power.append(bp)
+        metrics["bargaining_power"] = sum(bargaining_power) / len(games)
 
-        return {"bargaining_power" : sum(bargaining_power) / len(games)}
+        metrics["no-deal (%)"] = sum(1 for g in games if SizePrizeGame.ACCEPT in (g.player_1.move, g.player_2.move)) / len(games)
+        return metrics
         
     def is_finished(self):
         p1_done = self.player_1.move in (SizePrizeGame.ACCEPT, SizePrizeGame.ERROR)
@@ -293,6 +304,9 @@ class SizePrizeGame():
     @staticmethod
     def show_moves():
         return True
+
+    def is_error(self):
+        return self.player_1.move == SizePrizeGame.ERROR or self.player_2.move == SizePrizeGame.ERROR
 
     @staticmethod
     def _read_proposal(string):
