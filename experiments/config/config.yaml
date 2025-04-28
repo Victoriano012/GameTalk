@@ -12,27 +12,36 @@ train:
   auto_find_batch_size : True
   gradient_accumulation_steps : 1
 
+  eval_strategy: "steps"
   eval_steps: 20
   eval_on_start : True
   logging_steps : 1
+  logging_first_step: True
   save_steps : ${train.eval_steps}
   save_total_limit : 2
   load_best_model_at_end : True
   metric_for_best_model : "reward"
   early_stopping_patience: 100
   
-  max_completion_length: 300
-  max_new_tokens: $(max_completion_length) # OnlineDPO version
-  num_generations: 8 # I have to see how to give this to OnlineDPO
+  num_generations: 8
+  temperature: ${train.trained_temperature}
   
   beta: 0.1 # kl_coef
 
   ####### GRPOTrainer Config #######
   epsilon : 0.2 # ppo_epsilon
   num_iterations : 1 # GRPO mu
+  max_completion_length: 300
+  max_prompt_length: None
 
-  ####### other train config #######
+  ####### OnlineDPOTrainer Config #######
+  max_new_tokens: ${train.max_completion_length}
+  max_length: 100000000000 # None doesn't work
+
+  ####### Custom Config #######
   eval_samples : 32
+
+  ###################################
 
   trained_temperature : 1
   # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
@@ -41,9 +50,7 @@ train:
   
   # TODO
   method : "grpo" # "dpo" / "grpo"
-  dpo:
-    variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
-    average_log_prob : False
+  dpo_variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
 
   gamma : 1 # TODO (should rewrite compute_loss, not trivial)
 
@@ -60,7 +67,7 @@ dataset:
   trained_player: 2  # 1 or 2 or "both"
   player_A_num: 2    # 1 or 2 or "both" (for SPbargaining)
 
-  data : "/home/azureuser/main/LLMGameTheory/experiments/data/RPS.pkl"
+  data : "/home/vc111/main/LLMGameTheory/experiments/data/RPS.pkl"
 
 
 lora:
@@ -69,13 +76,13 @@ lora:
   lora_dropout: 0.0
 
 prompts:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/prompts/RPS/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/RPS/"
   initial_A: "initial.txt"
   initial_B: "initial.txt"
   intermediate: "other_moved.txt"
 
 logs:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
   metrics: "metrics.txt"
   conversations: "conversations.txt"

@@ -13,7 +13,7 @@ dataset:
   samples_per_epoch : 2 # ~ dataset_size
   
 logs:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/tests/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/tests/"
   
 wandb:
   tags: ["test"]

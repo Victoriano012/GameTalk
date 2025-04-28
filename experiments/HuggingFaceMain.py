@@ -10,6 +10,7 @@ import os
 
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from BaseCustomEvalTrainer import BaseCustomEvalTrainer, CustomGRPOConfig
+from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
 from llm_utils import LLM
 
 
@@ -41,23 +42,23 @@ def __main__(config):
     reward_mod = partial(game_reward, train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
     update_wrapper(reward_mod, game_reward)
     
-    Config = CustomGRPOConfig if config.train.method == "grpo" else None
-    BaseTrainer = GRPOTrainer if config.train.method == "grpo" else None
+    Config = {
+        "grpo" : CustomGRPOConfig,
+        "dpo" : CustomDPOConfig,
+    }[config.train.method]
+    BaseTrainer = {
+        "grpo" : GRPOTrainer,
+        "dpo" : CustomDPOTrainer,
+    }[config.train.method]
     class Trainer(BaseCustomEvalTrainer, BaseTrainer): pass
 
     Config_params = set(inspect.signature(Config.__init__).parameters)
     training_args = {k: v for k, v in config.train.items() if k in Config_params}
     training_args = Config(
         **training_args,
-        
+
         output_dir=config.logs.folder + config.run_name,
-        run_name=config.run_name,
-
-        eval_strategy="steps",
-        max_prompt_length=None,
-        logging_first_step=True,
-
-        temperature=config.train.trained_temperature,
+        run_name=config.run_name
     )
 
     trainer = Trainer(

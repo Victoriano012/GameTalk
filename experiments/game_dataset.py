@@ -158,7 +158,12 @@ class MetricsLogger(TrainerCallback):
                 print("REWARD (Player-1):", c.game.score(1), file=self.eval_conversation_file, flush=True)
                 print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.eval_conversation_file, flush=True)
 
-def game_reward(prompts, completions, conversation, train_llm_num, train_llm, opponent_llm, conversation_file, config):
+def game_reward(
+        prompts, completions, conversation, train_llm_num, # from current batch
+        train_llm, opponent_llm, conversation_file, config # general
+    ):
+    return [0,1] * (len(completions)//2) # ERASE THIS LINE
+
     print("\nComputing rewards", flush=True)
     conversations = [deepcopy(c) for c in conversation]
     for idx, action in enumerate(completions): conversations[idx].turn(action)
