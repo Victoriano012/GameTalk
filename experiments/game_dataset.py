@@ -162,8 +162,6 @@ def game_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
         train_llm, opponent_llm, conversation_file, config # general
     ):
-    return [0,1] * (len(completions)//2) # ERASE THIS LINE
-
     print("\nComputing rewards", flush=True)
     conversations = [deepcopy(c) for c in conversation]
     for idx, action in enumerate(completions): conversations[idx].turn(action)
