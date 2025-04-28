@@ -1,4 +1,4 @@
-from trl import GRPOConfig
+from trl import GRPOTrainer
 from transformers import EarlyStoppingCallback
 
 from functools import partial, update_wrapper
@@ -9,7 +9,7 @@ import sys
 import os
 
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
-from Trainer_mod import TrainerCustomEval
+from BaseCustomEvalTrainer import BaseCustomEvalTrainer, CustomGRPOConfig
 from llm_utils import LLM
 
 
@@ -41,9 +41,13 @@ def __main__(config):
     reward_mod = partial(game_reward, train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
     update_wrapper(reward_mod, game_reward)
     
-    GRPOConfig_params = set(inspect.signature(GRPOConfig.__init__).parameters)
-    training_args = {k: v for k, v in config.train.items() if k in GRPOConfig_params}
-    training_args = GRPOConfig(
+    Config = CustomGRPOConfig if config.train.method == "grpo" else None
+    BaseTrainer = GRPOTrainer if config.train.method == "grpo" else None
+    class Trainer(BaseCustomEvalTrainer, BaseTrainer): pass
+
+    Config_params = set(inspect.signature(Config.__init__).parameters)
+    training_args = {k: v for k, v in config.train.items() if k in Config_params}
+    training_args = Config(
         **training_args,
         
         output_dir=config.logs.folder + config.run_name,
@@ -51,12 +55,12 @@ def __main__(config):
 
         eval_strategy="steps",
         max_prompt_length=None,
-        logging_first_step = True,
+        logging_first_step=True,
 
         temperature=config.train.trained_temperature,
     )
 
-    trainer = TrainerCustomEval(
+    trainer = Trainer(
         model=train_llm.model,
         processing_class=train_llm.tokenizer,
         reward_funcs=reward_mod,
@@ -64,8 +68,6 @@ def __main__(config):
         train_dataset=dataset,
         eval_dataset=dataset,
         callbacks=callbacks,
-
-        eval_samples=config.train.eval_samples
     )
     trainer.train()
 

@@ -1,28 +1,35 @@
 from transformers.trainer_utils import EvalLoopOutput
-from trl import GRPOTrainer
+from transformers import Trainer
+from trl import GRPOConfig
 
 from collections import defaultdict
+from dataclasses import dataclass
 import torch
 import math
 
 from metrics import wordBasedLoss
 
+@dataclass
+class CustomGRPOConfig(GRPOConfig):
+    eval_samples: int = 32
+
 
 # So far I only care about dataloader
 # "internal_state_loss" is still to be tracked
 
-class TrainerCustomEval(GRPOTrainer):
-    def __init__(self, eval_samples, *args, **kwargs):
+class BaseCustomEvalTrainer:
+    def __init__(self, *args, **kwargs):
+        assert Trainer in self.__class__.mro(), "BaseCustomEvalTrainer is meant to be inherited with a subclass of trl.Trainer\nThat is: class YourTrainer(BaseCustomEvalTrainer, BaseTrainer): pass, where BaseTrainer is a subclass of Trainer, like GRPOTrainer"
         super().__init__(*args, **kwargs)
-        self.eval_samples = eval_samples
-        self.root_gens_iteration = eval_samples
+
+        self.root_gens_iteration = self.args.eval_samples
         self.num_oom = 1
 
     def evaluation_loop(self, dataloader, description, prediction_loss_only = None, ignore_keys = None, metric_key_prefix = "eval"):
     
         dataset = dataloader.dataset
         Game = dataset.Game
-        num_iterations = math.floor(self.eval_samples/self.root_gens_iteration)
+        num_iterations = math.floor(self.args.eval_samples/self.root_gens_iteration)
 
         assert description == "Evaluation", "Oops, evaluation description is not Evaluation"
 
@@ -66,7 +73,7 @@ class TrainerCustomEval(GRPOTrainer):
             print(f"Reducing root_gens_iteration from {self.root_gens_iteration} to", end=" ")
 
             self.num_oom += 1
-            self.root_gens_iteration = min(math.floor(self.eval_samples/self.num_oom), self.root_gens_iteration-1)
+            self.root_gens_iteration = min(math.floor(self.args.eval_samples/self.num_oom), self.root_gens_iteration-1)
             
             print(self.root_gens_iteration)
 

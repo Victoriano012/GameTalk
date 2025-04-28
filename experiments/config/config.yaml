@@ -6,33 +6,38 @@ llms:
   unsloth : False # not working
 
 train:
+  ####### Trainer Config #######
   learning_rate: 1e-4
   num_train_epochs: 500
   auto_find_batch_size : True
-  num_generations: 8
   gradient_accumulation_steps : 1
-  early_stopping_patience: 100
-  metric_for_best_model : "reward"
-  
-  max_completion_length: 300
-
-  beta: 0.1 # kl_coef
-  epsilon : 0.2 # ppo_epsilon
-
-  num_iterations : 1 # GRPO mu
-
-  trained_temperature : 1
-  # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
-  opponent_temperature : 0.6
-  opponent_top_p : 0.9
 
   eval_steps: 20
-  eval_samples : 32
   eval_on_start : True
   logging_steps : 1
   save_steps : ${train.eval_steps}
   save_total_limit : 2
   load_best_model_at_end : True
+  metric_for_best_model : "reward"
+  early_stopping_patience: 100
+  
+  max_completion_length: 300
+  max_new_tokens: $(max_completion_length) # OnlineDPO version
+  num_generations: 8 # I have to see how to give this to OnlineDPO
+  
+  beta: 0.1 # kl_coef
+
+  ####### GRPOTrainer Config #######
+  epsilon : 0.2 # ppo_epsilon
+  num_iterations : 1 # GRPO mu
+
+  ####### other train config #######
+  eval_samples : 32
+
+  trained_temperature : 1
+  # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
+  opponent_temperature : 0.6
+  opponent_top_p : 0.9
   
   # TODO
   method : "grpo" # "dpo" / "grpo"

@@ -314,7 +314,11 @@ class SizePrizeGame():
             r"(\d+) units at \$(\d+(\.\d+)?) each",
             r"(\d+) unit at \$(\d+(\.\d+)?) each",
             r"(\d+) units at (\d+(\.\d+)?) each",
-            r"(\d+) unit at (\d+(\.\d+)?) each"
+            r"(\d+) unit at (\d+(\.\d+)?) each",
+            r"(\d+) units at \$(\d+(\.\d+)?)",
+            r"(\d+) unit at \$(\d+(\.\d+)?)",
+            r"(\d+) units at (\d+(\.\d+)?)",
+            r"(\d+) unit at (\d+(\.\d+)?)"
         ]
         for pattern in patterns:
             try:
