@@ -72,6 +72,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
     def training_step(self, model, inputs, num_items_in_batch = None):
         model.train()
 
+        original_inputs = inputs.copy()
         prompts = inputs["prompt"]
         batch_size = len(prompts)
 
@@ -137,8 +138,9 @@ class CustomDPOTrainer(OnlineDPOTrainer):
             losses.append(curr_loss)
 
         if len(losses) == 0:
-            print("No group with more than one unique reward. Skipping this batch. If this happens often, it's bad.")
-            return torch.tensor(0.0, device=device)
+            print("No group with more than one unique reward. Running again this batch.")
+            print("If this happens too many times, I will actually solve it.")
+            return self.training_step(model, original_inputs, num_items_in_batch)
         
         loss = torch.stack(losses).mean()
         print("loss computed")
