@@ -111,6 +111,12 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         losses = []
         for group_weights, group_rewards in zip(dpo_weights, rewards_view):
             unique_rewards, _ = torch.sort(torch.unique(group_rewards), descending=True)
+
+            while len(unique_rewards) == 1:
+                print("Only one unique reward, randomizing this group")
+                group_rewards = torch.randint(low=0, high=2, size=group_rewards.shape, device=group_rewards.device)
+                unique_rewards, _ = torch.sort(torch.unique(group_rewards), descending=True)
+            
             dpo_weight_groupped_by_reward = [group_weights[group_rewards == r] for r in unique_rewards]
             
             if len(unique_rewards) == 1:
@@ -136,11 +142,6 @@ class CustomDPOTrainer(OnlineDPOTrainer):
                 curr_loss = - tied_plackett_luce_logprob(dpo_weight_groupped_by_reward)
 
             losses.append(curr_loss)
-
-        if len(losses) == 0:
-            print("No group with more than one unique reward. Running again this batch.")
-            print("If this happens too many times, I will actually solve it.")
-            return self.training_step(model, original_inputs, num_items_in_batch)
         
         loss = torch.stack(losses).mean()
         print("loss computed")
