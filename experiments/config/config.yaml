@@ -32,11 +32,11 @@ train:
   epsilon : 0.2 # ppo_epsilon
   num_iterations : 1 # GRPO mu
   max_completion_length: 300
-  max_prompt_length: None
+  max_prompt_length: null
 
   ####### OnlineDPOTrainer Config #######
   max_new_tokens: ${train.max_completion_length}
-  max_length: 100000000000 # None doesn't work
+  max_length: null
 
   ####### Custom Config #######
   eval_samples : 32
