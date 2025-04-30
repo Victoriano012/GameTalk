@@ -6,7 +6,6 @@ import math
 
 from transformers.trainer_utils import seed_worker
 from transformers import Trainer, TrainingArguments
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from functools import wraps
 
