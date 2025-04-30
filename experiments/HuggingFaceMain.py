@@ -8,9 +8,10 @@ import hydra
 import sys
 import os
 
-from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from BaseCustomEvalTrainer import BaseCustomEvalTrainer, CustomGRPOConfig
+from CustomSTaRTrainer import CustomSTaRTrainer, CustomSTaRConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
+from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from llm_utils import LLM
 
 
@@ -45,10 +46,12 @@ def __main__(config):
     Config = {
         "grpo" : CustomGRPOConfig,
         "dpo" : CustomDPOConfig,
+        "star" : CustomSTaRConfig,
     }[config.train.method]
     BaseTrainer = {
         "grpo" : GRPOTrainer,
         "dpo" : CustomDPOTrainer,
+        "star" : CustomSTaRTrainer,
     }[config.train.method]
     class Trainer(BaseCustomEvalTrainer, BaseTrainer): pass
 
