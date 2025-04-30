@@ -55,8 +55,11 @@ class GameDataset(Dataset):
         self.Game = get_game(config.dataset.game_name)
         self.update_batch()
         self.eval_batch_shown = True
+        self.column_names = ["prompt", "conversation", "train_llm_num"]
 
     def __len__(self):
+        if not self.keep_partial_conversations:
+            return self.config.dataset.num_root_generations
         return self.config.dataset.samples_per_epoch
 
     # generate root conversation and all sub-conversations

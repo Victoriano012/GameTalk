@@ -31,9 +31,10 @@ def __main__(config):
     train_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
     opponent_llm = LLM(config.llms.opponent_llm_name, unsloth=config.llms.unsloth).to('cuda')
 
+    keep_partial_conversations = config.train.method != 'star' # ugly
     with open(config.dataset.data, 'rb') as f:
         data = load(f)
-    dataset = GameDataset(train_llm, opponent_llm, data, config)
+    dataset = GameDataset(train_llm, opponent_llm, data, config, keep_partial_conversations=keep_partial_conversations)
 
     dataset_callback = OutdateDatasetCallback(dataset)
     metrics_logger = MetricsLogger(dataset, metics_file, conversation_file, eval_conversation_file, config)
