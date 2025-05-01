@@ -57,7 +57,7 @@ class BaseCustomEvalTrainer:
             for k in metrics:
                 metrics[k] /= num_samples
             
-            metrics["normalized_relative_advantage"] = 0. if metrics["reward"] == metrics["opponent_reward"] == 0 else \
+            metrics["normalized_relative_advantage"] = 0. if metrics["reward"] + metrics["opponent_reward"] == 0 else \
                 (metrics["reward"] - metrics["opponent_reward"]) / (metrics["reward"] + metrics["opponent_reward"])
 
             # Prefix all keys with metric_key_prefix + '_'

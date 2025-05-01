@@ -6,7 +6,6 @@ import math
 
 from transformers.trainer_utils import seed_worker
 from transformers import Trainer, TrainingArguments
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from functools import wraps
 
@@ -26,8 +25,13 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
     def training_step(self, model, inputs, num_items_in_batch = None):
         inputs = self._filter(inputs)
-        input_ids, attention_mask = get_attention_masks(inputs, self.processing_class)
-        self.step(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+
+        input_ids, loss_mask = get_loss_masks(inputs, self.processing_class)
+        labels = [x.clone() for x in input_ids]
+        for label, mask in zip(labels, loss_mask): label[mask == 0] = -100
+        attention_mask = [torch.ones_like(x) for x in input_ids]
+        self.step(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+
         return torch.tensor(0.0, device=self.model.device)
     
     def _filter(self, inputs):
@@ -67,29 +71,29 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
 
 
-def get_attention_masks(inputs, tokenizer):
+def get_loss_masks(inputs, tokenizer):
     texts, intervals_list = [], []
     for c, n in zip(inputs['conversation'], inputs['train_llm_num']):
         train_player = c.get_player(n)
         texts.append(train_player.pov)
         intervals_list.append(train_player.get_talk_intervals())
     
-    batch_input_ids, batch_attention_masks = [], []
+    batch_input_ids, batch_loss_masks = [], []
     for text, intervals in zip(texts, intervals_list):
         encoding = tokenizer(text, return_offsets_mapping=True, add_special_tokens=False)
         input_ids, offsets = encoding['input_ids'], encoding['offset_mapping']
 
-        attention_mask = torch.zeros(len(offsets))
+        loss_mask = torch.zeros(len(offsets))
         i = j = 0  # token/interval pointer
         while i < len(offsets) and j < len(intervals):
             if offsets[i][1] <= intervals[j][0]: i += 1
             elif offsets[i][0] >= intervals[j][1]: j += 1
             else:
-                attention_mask[i] = 1
+                loss_mask[i] = 1
                 i += 1
 
         batch_input_ids.append(torch.tensor(input_ids))
-        batch_attention_masks.append(attention_mask)
+        batch_loss_masks.append(loss_mask)
 
-    return batch_input_ids, batch_attention_masks
+    return batch_input_ids, batch_loss_masks
 
