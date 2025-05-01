@@ -33,6 +33,7 @@ train:
   num_iterations : 1 # GRPO mu
   max_completion_length : 300
   max_prompt_length : null
+  entropy_beta: 0.01 # kl_coef
 
   ####### OnlineDPOTrainer Config #####
   max_new_tokens : ${train.max_completion_length}

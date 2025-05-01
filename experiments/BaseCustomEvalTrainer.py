@@ -1,17 +1,11 @@
 from transformers.trainer_utils import EvalLoopOutput
 from transformers import Trainer
-from trl import GRPOConfig
 
 from collections import defaultdict
-from dataclasses import dataclass
 import torch
 import math
 
 from metrics import wordBasedLoss
-
-@dataclass
-class CustomGRPOConfig(GRPOConfig):
-    eval_samples: int = 32
 
 
 # So far I only care about dataloader

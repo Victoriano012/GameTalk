@@ -8,8 +8,9 @@ import hydra
 import sys
 import os
 
-from BaseCustomEvalTrainer import BaseCustomEvalTrainer, CustomGRPOConfig
+from BaseCustomEvalTrainer import BaseCustomEvalTrainer
 from CustomSTaRTrainer import CustomSTaRTrainer, CustomSTaRConfig
+from CustomGRPOTrainer import CustomGRPOTrainer, CustomGRPOConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from llm_utils import LLM
@@ -50,7 +51,7 @@ def __main__(config):
         "star" : CustomSTaRConfig,
     }[config.train.method]
     BaseTrainer = {
-        "grpo" : GRPOTrainer,
+        "grpo" : CustomGRPOTrainer,
         "dpo" : CustomDPOTrainer,
         "star" : CustomSTaRTrainer,
     }[config.train.method]
