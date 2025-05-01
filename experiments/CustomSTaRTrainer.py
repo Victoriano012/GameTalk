@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import torch
 import math
 
-from transformers.trainer_utils import seed_worker
+from transformers.trainer_utils import seed_worker, SaveStrategy
 from transformers import Trainer, TrainingArguments
 from torch.utils.data import DataLoader
 from functools import wraps
@@ -22,6 +22,11 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
         self.data_collator_2 = DPODataCollatorWithPadding(pad_token_id=processing_class.pad_token_id)
         super().__init__(processing_class=processing_class, **kwargs)
+
+        self.stats = {
+            "SFT_runs %": [],
+            "reward": [],
+        }
 
     def training_step(self, model, inputs, num_items_in_batch = None):
         inputs = self._filter(inputs)
@@ -41,6 +46,9 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         i = math.ceil(len(rewards)*self.args.min_sft_part)
         while i < len(rewards) and sorted_rewards[i] == sorted_rewards[i - 1]: i += 1
         selected_indices = sorted_indices[:i]
+
+        self.stats["SFT_runs %"].append(i / len(rewards))
+        self.stats["reward"].append(rewards.mean().item())
 
         return {k: [v[i] for i in selected_indices] for k, v in inputs.items()}
     
@@ -68,6 +76,42 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
     
+    # copied from Trainer
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            logs = {}
+
+            tr_loss_scalar = self._nested_gather(self.tr_loss).mean().item()
+            # reset tr_loss to zero
+            self.tr_loss -= self.tr_loss
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+
+            if grad_norm is not None:
+                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+            logs["learning_rate"] = self._get_learning_rate()
+            
+            # Add our metrics
+            for key, val in self.stats.items():
+                logs[key] = sum(val) / len(val)
+            self.stats = {key: [] for key in self.stats}  # reset stats
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+
+            self.log(logs, start_time)
+
+        metrics = None
+        if self.control.should_evaluate:
+            metrics = self._evaluate(trial, ignore_keys_for_eval)
+            is_new_best_metric = self._determine_best_metric(metrics=metrics, trial=trial)
+
+            if self.args.save_strategy == SaveStrategy.BEST:
+                self.control.should_save = is_new_best_metric
+
+        if self.control.should_save:
+            self._save_checkpoint(model, trial)
+            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
 
 
