@@ -70,6 +70,8 @@ class ConversationPlayer:
         if other_kwargs is not None:
             self.pov += intermediate_prompt.format(**other_kwargs)
 
+    def get_talk_intervals(self):
+        return list(zip(self.starting_indices, self.ending_indices))
 
 class ConversationManager:
     @autoassign
@@ -95,6 +97,9 @@ class ConversationManager:
     # other player = True -> query the player who has just played
     def get_query(self, other_player=False):
         return self.players[other_player].pov + "<|start_header_id|>assistant<|end_header_id|> <think>"
+
+    def get_player(self, player_num):
+        return self.player_1 if player_num%2 == 1 else self.player_2
 
     def finished(self):
         return self.game.is_finished()

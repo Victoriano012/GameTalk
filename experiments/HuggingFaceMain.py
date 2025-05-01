@@ -8,9 +8,11 @@ import hydra
 import sys
 import os
 
-from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
-from BaseCustomEvalTrainer import BaseCustomEvalTrainer, CustomGRPOConfig
+from BaseCustomEvalTrainer import BaseCustomEvalTrainer
+from CustomSTaRTrainer import CustomSTaRTrainer, CustomSTaRConfig
+from CustomGRPOTrainer import CustomGRPOTrainer, CustomGRPOConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
+from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from llm_utils import LLM
 
 
@@ -30,9 +32,10 @@ def __main__(config):
     train_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
     opponent_llm = LLM(config.llms.opponent_llm_name, unsloth=config.llms.unsloth).to('cuda')
 
+    keep_partial_conversations = config.train.method != 'star' # ugly
     with open(config.dataset.data, 'rb') as f:
         data = load(f)
-    dataset = GameDataset(train_llm, opponent_llm, data, config)
+    dataset = GameDataset(train_llm, opponent_llm, data, config, keep_partial_conversations=keep_partial_conversations)
 
     dataset_callback = OutdateDatasetCallback(dataset)
     metrics_logger = MetricsLogger(dataset, metics_file, conversation_file, eval_conversation_file, config)
@@ -45,10 +48,12 @@ def __main__(config):
     Config = {
         "grpo" : CustomGRPOConfig,
         "dpo" : CustomDPOConfig,
+        "star" : CustomSTaRConfig,
     }[config.train.method]
     BaseTrainer = {
-        "grpo" : GRPOTrainer,
+        "grpo" : CustomGRPOTrainer,
         "dpo" : CustomDPOTrainer,
+        "star" : CustomSTaRTrainer,
     }[config.train.method]
     class Trainer(BaseCustomEvalTrainer, BaseTrainer): pass
 

@@ -45,7 +45,7 @@ def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, 
 
 class GameDataset(Dataset):
     @autoassign
-    def __init__(self, train_llm, opponent_llm, data, config):
+    def __init__(self, train_llm, opponent_llm, data, config, keep_partial_conversations=True):
         with open(config.prompts.folder + config.prompts.initial_A, "r") as file:
             self.initial_prompt_A = file.read()
         with open(config.prompts.folder + config.prompts.initial_B, "r") as file:
@@ -55,8 +55,11 @@ class GameDataset(Dataset):
         self.Game = get_game(config.dataset.game_name)
         self.update_batch()
         self.eval_batch_shown = True
+        self.column_names = ["prompt", "conversation", "train_llm_num"]
 
     def __len__(self):
+        if not self.keep_partial_conversations:
+            return self.config.dataset.num_root_generations
         return self.config.dataset.samples_per_epoch
 
     # generate root conversation and all sub-conversations
@@ -69,6 +72,8 @@ class GameDataset(Dataset):
 
     def update_batch(self):
         self.batch, self.full_conversations, self.train_llm_num = self._create_batch()
+        if not self.keep_partial_conversations:
+            self.batch = self.full_conversations
         random.shuffle(self.batch)
 
     def create_eval_batch(self, num_root_generations=None):

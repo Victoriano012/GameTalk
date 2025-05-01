@@ -1,17 +1,11 @@
 from transformers.trainer_utils import EvalLoopOutput
 from transformers import Trainer
-from trl import GRPOConfig
 
 from collections import defaultdict
-from dataclasses import dataclass
 import torch
 import math
 
 from metrics import wordBasedLoss
-
-@dataclass
-class CustomGRPOConfig(GRPOConfig):
-    eval_samples: int = 32
 
 
 # So far I only care about dataloader
@@ -57,7 +51,7 @@ class BaseCustomEvalTrainer:
             for k in metrics:
                 metrics[k] /= num_samples
             
-            metrics["normalized_relative_advantage"] = 0. if metrics["reward"] == metrics["opponent_reward"] == 0 else \
+            metrics["normalized_relative_advantage"] = 0. if metrics["reward"] + metrics["opponent_reward"] == 0 else \
                 (metrics["reward"] - metrics["opponent_reward"]) / (metrics["reward"] + metrics["opponent_reward"])
 
             # Prefix all keys with metric_key_prefix + '_'

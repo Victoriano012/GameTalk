@@ -28,20 +28,27 @@ train:
   
   beta: 0.1 # kl_coef
 
-  ####### GRPOTrainer Config #######
+  ####### GRPOTrainer Config ##########
   epsilon : 0.2 # ppo_epsilon
   num_iterations : 1 # GRPO mu
-  max_completion_length: 300
-  max_prompt_length: null
+  max_completion_length : 300
+  max_prompt_length : null
+  entropy_beta: 0.01 # kl_coef
 
-  ####### OnlineDPOTrainer Config #######
-  max_new_tokens: ${train.max_completion_length}
-  max_length: null
+  ####### OnlineDPOTrainer Config #####
+  max_new_tokens : ${train.max_completion_length}
+  max_length : 100000000000
 
-  ####### Custom Config #######
+  ####### STaRTrainer Config ##########
+  min_sft_part : 0.1
+  max_steps: 3000
+  dataset_kwargs :
+    skip_prepare_dataset : True
+
+  ####### Custom Config ###############
   eval_samples : 32
 
-  ###################################
+  #####################################
 
   trained_temperature : 1
   # trained_top_p : 1.0 (GRPOTrainer doesn't allow it)
