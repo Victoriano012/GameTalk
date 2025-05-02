@@ -46,6 +46,7 @@ train:
   max_steps: 3000
   dataset_kwargs :
     skip_prepare_dataset : True
+  star_batch_size : 1
 
   ####### Custom Config ###############
   eval_samples : 32
@@ -90,7 +91,7 @@ prompts:
   intermediate: "other_moved.txt"
 
 logs:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
   metrics: "metrics.txt"
   conversations: "conversations.txt"

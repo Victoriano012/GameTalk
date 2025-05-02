@@ -14,6 +14,7 @@ from functools import wraps
 class CustomSTaRConfig(TrainingArguments):
     eval_samples: int = 32
     min_sft_part: float = 0.1
+    star_batch_size: int = 1
 
 
 class CustomSTaRTrainer(IterativeSFTTrainer):
@@ -26,6 +27,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         self.stats = {
             "SFT_runs %": [],
             "reward": [],
+            "batch_size": [],
         }
 
     def training_step(self, model, inputs, num_items_in_batch = None):
@@ -35,7 +37,13 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         labels = [x.clone() for x in input_ids]
         for label, mask in zip(labels, loss_mask): label[mask == 0] = -100
         attention_mask = [torch.ones_like(x) for x in input_ids]
-        self.step(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+        
+        bs = self.args.star_batch_size
+        for i in range(math.ceil(len(input_ids)/bs)):
+            inputs_batch = input_ids[i*bs:(i+1)*bs]
+            attention_batch = attention_mask[i*bs:(i+1)*bs]
+            labels_batch = labels[i*bs:(i+1)*bs]
+            self.step(input_ids=inputs_batch, attention_mask=attention_batch, labels=labels_batch)
 
         return torch.tensor(0.0, device=self.model.device)
     
@@ -49,6 +57,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
         self.stats["SFT_runs %"].append(i / len(rewards))
         self.stats["reward"].append(rewards.mean().item())
+        self.stats["batch_size"].append(len(rewards))
 
         return {k: [v[i] for i in selected_indices] for k, v in inputs.items()}
     
