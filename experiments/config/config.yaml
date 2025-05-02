@@ -91,7 +91,7 @@ prompts:
   intermediate: "other_moved.txt"
 
 logs:
-  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
+  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
   general: "general.txt"
   metrics: "metrics.txt"
   conversations: "conversations.txt"
@@ -100,7 +100,10 @@ logs:
 run_name: "first-test"
 wandb:
   project: ${dataset.game_name}
-  tags : ["iteration_3"]
+  tags :
+    - ${train.method}
+    - ${dataset.game_name}
+    - ${llms.train_llm_name}
 
 
 ###### Not modifiable configuration ######

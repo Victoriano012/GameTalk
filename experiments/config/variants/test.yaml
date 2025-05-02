@@ -14,6 +14,10 @@ dataset:
   
 logs:
   folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/tests/"
-  
+
 wandb:
-  tags: ["test"]
+  tags :
+    - ${train.method}
+    - ${dataset.game_name}
+    - ${llms.train_llm_name}
+    - "test"

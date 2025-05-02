@@ -16,14 +16,13 @@ from CustomGRPOTrainer import CustomGRPOTrainer, CustomGRPOConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from llm_utils import LLM
+from utils import get_wandb_id
 
 
 @hydra.main(config_path='config', config_name='config', version_base=None)
 def __main__(config):
     
     ### Logging ###
-    os.environ["WANDB_PROJECT"] = config.wandb.project
-    
     os.makedirs(f"{config.logs.folder}{config.run_name}", exist_ok=True)
     write_mode = "a" if config.train.resume_from_checkpoint else "w"
     general_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.general}", write_mode)
@@ -32,6 +31,14 @@ def __main__(config):
     eval_conversation_file = open(f"{config.logs.folder}{config.run_name}/{config.logs.eval_conversations}", write_mode)
     sys.stdout = general_file
     sys.stderr = general_file
+
+    wandb.init(
+        config = OmegaConf.to_container(config, resolve=True),
+        name = config.run_name,
+        resume = "allow" if config.train.resume_from_checkpoint else "never",
+        id = get_wandb_id(config.run_name, config.train.resume_from_checkpoint),
+        **config.wandb
+    )
 
     ### Models ###
     train_llm = LLM(config.llms.train_llm_name, lora_config=config.lora, unsloth=config.llms.unsloth).to('cuda')
@@ -84,6 +91,8 @@ def __main__(config):
         eval_dataset=dataset,
         callbacks=callbacks,
     )
+
+    ### train ###
     trainer.train(resume_from_checkpoint=config.train.resume_from_checkpoint)
 
 if __name__ == "__main__":
