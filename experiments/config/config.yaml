@@ -6,6 +6,8 @@ llms:
   unsloth : False # not working
 
 train:
+  resume_from_checkpoint : False
+
   ####### Trainer Config #######
   learning_rate: 1e-4
   num_train_epochs: 500
@@ -55,8 +57,7 @@ train:
   opponent_temperature : 0.6
   opponent_top_p : 0.9
   
-  # TODO
-  method : "grpo" # "dpo" / "grpo"
+  method : "grpo" # "dpo" / "grpo" / "star"
   dpo_variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
 
   gamma : 1 # TODO (should rewrite compute_loss, not trivial)
