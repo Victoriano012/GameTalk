@@ -86,7 +86,8 @@ class RPS():
         return metrics
     
     def is_finished(self):
-        return self.player_1.move is not None and self.player_2.move is not None
+        return self.player_1.move == RPS.ERROR or self.player_2.move == RPS.ERROR or \
+               self.player_1.move is not None and self.player_2.move is not None
         
         
     def _won_by_error(self, player_id):
