@@ -71,16 +71,19 @@ class GameDataset(Dataset):
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
 
     def update_batch(self):
-        self.batch, self.full_conversations, self.train_llm_num = self._create_batch()
-        if not self.keep_partial_conversations:
-            self.batch = self.full_conversations
+        self.full_conversations, self.train_llm_num = self._create_batch()
+        self.batch = self.full_conversations if not self.keep_partial_conversations else \
+            sum([list(c.get_subconversations(self.train_llm_num)) for c in self.full_conversations], [])
         random.shuffle(self.batch)
 
-    def create_eval_batch(self, num_root_generations=None):
-        output = self._create_batch(num_root_generations=num_root_generations)
-        _, self.eval_batch, _ = output
+    def restart_eval_batch(self):
+        self.eval_batch = []
         self.eval_batch_shown = False
-        return output
+
+    def create_eval_batch(self, num_root_generations=None):
+        new_eval_batch, eval_llm_num = self._create_batch(num_root_generations=num_root_generations)
+        self.eval_batch.append(new_eval_batch)
+        return new_eval_batch, eval_llm_num
 
     def _create_batch(self, num_root_generations=None):
         print("\nCreating batch", flush=True)
@@ -117,11 +120,9 @@ class GameDataset(Dataset):
         ) for i in range(num_root_generations) ]
 
         conversations = finish_conversations(conversations, self.train_llm, self.opponent_llm, train_llm_num, self.config)
-
-        all_subconversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]
         print("Batch created", flush=True)
 
-        return sum(all_subconversations, []), conversations, train_llm_num
+        return conversations, train_llm_num
 
 
 class OutdateDatasetCallback(TrainerCallback):

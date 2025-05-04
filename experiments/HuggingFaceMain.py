@@ -17,6 +17,7 @@ from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from llm_utils import LLM
 from utils import get_wandb_id
+from metrics import get_eval_metrics
 
 
 @hydra.main(config_path='config', config_name='config', version_base=None)
@@ -90,6 +91,8 @@ def __main__(config):
         train_dataset=dataset,
         eval_dataset=dataset,
         callbacks=callbacks,
+
+        eval_funcs=get_eval_metrics(train_llm, opponent_llm)
     )
 
     ### train ###

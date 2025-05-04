@@ -2,9 +2,18 @@ import torch
 import math
 import re
 
+from functools import partial
 from utils import masked_call
 
+def get_eval_metrics(train_llm, opponent_llm):
+    return {
+        "word_based_loss" : wordBasedLoss
+    }
+
+
 """
+########### Internal State Evaluation ###########
+
 def get_end_tokens(tokenizer, Game):
     moves = {item.value : item for item in Game if not item.is_error()}
     ends = [" " + name for name in list(moves)]
@@ -80,8 +89,10 @@ def internalStateEvaluation(llm_trained, llm_opponent, Game, conversations):
     return kl
 """
 
+########### Word Based Loss ###########
+
 bad_words = []
-def wordBasedLoss(conversation, train_llm_num):
+def inividual_wordBasedLoss(conversation, train_llm_num):
     word_based_loss = 0.0
     player = conversation.player_1 if train_llm_num%2 == 1 else conversation.player_2
     for parsed_action in player.parsed_actions:
@@ -90,3 +101,6 @@ def wordBasedLoss(conversation, train_llm_num):
         talk = parsed_action['talk']
         word_based_loss += sum(len(re.findall(r'\b' + re.escape(word) + r'\b', talk)) for word in bad_words)
     return word_based_loss
+
+def wordBasedLoss(conversations, train_llm_num):
+    return [inividual_wordBasedLoss(c, train_llm_num) for c in conversations]
