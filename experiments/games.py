@@ -24,12 +24,24 @@ class RPS():
     PAPER = "paper"
     SCISSORS = "scissors"
     ERROR = "error"
+        
+    @staticmethod
+    def show_moves(): return False
+    @staticmethod
+    def get_possible_moves(): return [RPS.ROCK, RPS.PAPER, RPS.SCISSORS]
 
     def __init__(self, id_1, id_2, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, move=None)
         self.player_2 = SimpleNamespace(id=id_2, move=None)
 
         self.ids = (id_1, id_2)
+        
+    def is_error(self):
+        return self.player_1.move == RPS.ERROR or self.player_2.move == RPS.ERROR
+    
+    def is_finished(self):
+        return self.player_1.move == RPS.ERROR or self.player_2.move == RPS.ERROR or \
+               self.player_1.move is not None and self.player_2.move is not None
 
     # make_move returns my_kwargs and other_kwargs, to add intermediate prompts in the conversation
     # kwargs=None -> No need for intermediate prompt
@@ -84,10 +96,6 @@ class RPS():
         metrics["won_by_error (%)"] += sum(1 for g in games if g._won_by_error(player_id))
 
         return metrics
-    
-    def is_finished(self):
-        return self.player_1.move == RPS.ERROR or self.player_2.move == RPS.ERROR or \
-               self.player_1.move is not None and self.player_2.move is not None
         
         
     def _won_by_error(self, player_id):
@@ -100,13 +108,6 @@ class RPS():
 
         if move1 == RPS.ERROR or move1 == None: return False
         return move2 == RPS.ERROR or move2 == None
-
-    @staticmethod
-    def show_moves():
-        return False
-        
-    def is_error(self):
-        return self.player_1.move == RPS.ERROR or self.player_2.move == RPS.ERROR
 
 
 

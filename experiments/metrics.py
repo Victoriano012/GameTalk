@@ -1,48 +1,47 @@
+import numpy as np
 import torch
 import math
 import re
 
 from functools import partial
-from utils import masked_call
 
 def get_eval_metrics(train_llm, opponent_llm):
     return {
-        "word_based_loss" : wordBasedLoss
+        "word_based_loss" : wordBasedLoss,
+        "internal_state_evaluation" : partial(internalStateEvaluation, train_llm=train_llm, opponent_llm=opponent_llm)
     }
 
 
-"""
 ########### Internal State Evaluation ###########
 
-def get_end_tokens(tokenizer, Game):
-    moves = {item.value : item for item in Game if not item.is_error()}
-    ends = [" " + name for name in list(moves)]
-    tokens = tokenizer(ends, return_tensors='pt')['input_ids'][:,1:].squeeze()
-    assert len(tokens.shape) == 1, "Game actions are more than one token long, NotImplementedError"
-    return {tokens[idx].item() : moves[ends[idx][1:]] for idx in range(len(ends))}
+# kl divergence computation specifically for the case of p, q being dictionaries
+def kl_div(p, q):
+    kl_div = 0.0
+    for event, p_prob in p.items():
+        q_prob = q[event]
+        kl_div += p_prob * math.log(p_prob / q_prob)
+    return kl_div
 
 # other_name=None indicates that the strategy to estimate is llm's strategy
 def estimate_strategy(llm, queries, Game, other_name=None):
 
-    sample_move = [item.value for item in Game if not item.is_error()][0]
-    sample_token = llm.tokenizer(" " + sample_move)['input_ids'][1]
+    possible_moves = Game.get_possible_moves()
+    possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,1:].squeeze()
+    
+    sample_move = possible_moves[0]
+    sample_token = possible_tokens[0]
 
     if other_name == None:
         think_token = "<think>"
         for idx in range(len(queries)):
-            if queries[idx][len(think_token):] == think_token:
+            if queries[idx].endswith(think_token):
                 queries[idx] = queries[idx][:len(think_token)]
-        for idx in range(len(queries)):
             queries[idx] += f"<play> " + sample_move
     else:
         for idx in range(len(queries)):
             queries[idx] += f" I think {other_name} will play " + sample_move
             
-    token_to_instance = get_end_tokens(llm.tokenizer, Game)
-    tokens = list(token_to_instance)
-
     tokenized = llm.tokenizer(queries, padding=True, truncation=True, return_tensors='pt').to('cuda')
-
     assert (sample_token == tokenized['input_ids'][:,-1]).all()
 
     probs_list = []
@@ -52,42 +51,30 @@ def estimate_strategy(llm, queries, Game, other_name=None):
                 input_ids=tokenized["input_ids"][i].unsqueeze(0),
                 attention_mask=tokenized["attention_mask"][i].unsqueeze(0),
             )
-            logits = output.logits[:, -1, tokens]
+            logits = output.logits[:, -2, possible_tokens]
             probs = logits.softmax(dim=-1)
             probs_list.append(probs)
     probs = torch.cat(probs_list, dim=0)
 
-    return [{token_to_instance[tokens[idx]] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
-    
-# kl divergence computation specifically for the case of p, q being dictionaries
-def kl_div(p, q):
-    kl_div = 0.0
-    for event, p_prob in p.items():
-        q_prob = q[event]
-        kl_div += p_prob * math.log(p_prob / q_prob)
-    return kl_div
+    return [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
 
 
-def internalStateEvaluation(llm_trained, llm_opponent, Game, conversations):
-    player_1_estimation = masked_call(
-        lambda q : estimate_strategy(llm_trained, q, Game, other_name="user"),
-        queries= [c.get_query() for c in conversations],
-        mask   = [not c.finished() for c in conversations],
-        unpack = False
+def internalStateEvaluation(conversations, train_llm_num, llm_trained, llm_opponent):
+    partial_conversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]
+    parts_per_conversation = [len(c) for c in partial_conversations]
+    partial_conversations = sum(partial_conversations, [])
+
+    Game = type(conversations[0].game)
+    player_1_estimation = estimate_strategy(
+        llm_trained, [c.get_query() for c in partial_conversations], Game=Game, other_name="user"
     )
-    player_2_strategy = masked_call(
-        lambda q : estimate_strategy(llm_opponent, q, Game, other_name=None),
-        queries= [c.get_query(other_player=True) for c in conversations],
-        mask   = [not c.finished() for c in conversations],
-        unpack = False
+    player_2_strategy = estimate_strategy(
+        llm_opponent, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name=None
     )
 
-    kl = 0.0
-    for x in range(len(player_1_estimation)):
-        kl += kl_div(player_1_estimation[x], player_2_strategy[x])
-    kl /= len(player_1_estimation)
-    return kl
-"""
+    kl_divs = [kl_div(est, strategy) for est, strategy in zip(player_1_estimation, player_2_strategy)]
+    return [float(np.mean(group)) for group in np.split(kl_divs, np.cumsum(parts_per_conversation)[:-1])]
+
 
 ########### Word Based Loss ###########
 
