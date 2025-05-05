@@ -1,0 +1,15 @@
+# @package _global_
+
+prompts:
+  initial_A: "initial_no_paper.txt"
+
+dataset:
+  game_name: "rock-scissors"
+
+wandb:
+  project: "rock-paper-scissors"
+  tags :
+    - ${train.method}
+    - ${dataset.game_name}
+    - "no-paper"
+    - ${llms.train_llm_name}

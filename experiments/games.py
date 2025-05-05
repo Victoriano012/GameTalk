@@ -15,6 +15,10 @@ def get_game(game_name: str):
         return BertrandCompetition
     if game_name == "size-prize-bargaining-game":
         return SizePrizeGame
+        
+    if game_name == "rock-scissors":
+        RPS.banned_moves_2 = [RPS.PAPER]  # TRAIN_LLM IS PLAYER 2
+        return RPS
     return None
 
 
@@ -24,15 +28,21 @@ class RPS():
     PAPER = "paper"
     SCISSORS = "scissors"
     ERROR = "error"
-        
+
+    banned_moves_1 = []
+    banned_moves_2 = []
+    
     @staticmethod
     def show_moves(): return False
+
     @staticmethod
-    def get_possible_moves(): return [RPS.ROCK, RPS.PAPER, RPS.SCISSORS]
+    def get_possible_moves(player_num):
+        if player_num%2 == 1: return [x for x in [RPS.ROCK, RPS.PAPER, RPS.SCISSORS] if x not in RPS.banned_moves_1]
+        if player_num%2 == 0: return [x for x in [RPS.ROCK, RPS.PAPER, RPS.SCISSORS] if x not in RPS.banned_moves_2]
 
     def __init__(self, id_1, id_2, **kwargs):
-        self.player_1 = SimpleNamespace(id=id_1, move=None)
-        self.player_2 = SimpleNamespace(id=id_2, move=None)
+        self.player_1 = SimpleNamespace(id=id_1, move=None, banned_moves=RPS.banned_moves_1)
+        self.player_2 = SimpleNamespace(id=id_2, move=None, banned_moves=RPS.banned_moves_2)
 
         self.ids = (id_1, id_2)
         
@@ -59,14 +69,14 @@ class RPS():
             return None, None
 
         move = move.strip().lower()
-        if move not in (RPS.ROCK, RPS.PAPER, RPS.SCISSORS):
+        if move not in (RPS.ROCK, RPS.PAPER, RPS.SCISSORS) or move in curr_player.banned_moves:
             curr_player.move = RPS.ERROR
             return None, None
         else:
             curr_player.move = move
             return None, {}
     
-    # move1 wins -> 2., move2 wins -> 0., tie -> 1.
+    # player_id wins -> 2., other wins -> 0., tie -> 1.
     def score(self, player_id):
         if isinstance(player_id, int):
             player_id = self.player_1.id if player_id%2 == 1 else self.player_2.id

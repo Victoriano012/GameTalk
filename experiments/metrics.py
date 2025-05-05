@@ -35,9 +35,10 @@ def wordBasedLoss(conversations, train_llm_num):
 ########### Previous common part ###########
 
 # other_name=None indicates that the strategy to estimate is llm's strategy
-def estimate_strategy(llm, queries, Game, other_name=None):
+# player_num is that of the player whose strategy is being estimated
+def estimate_strategy(llm, queries, Game, player_num, other_name=None):
 
-    possible_moves = Game.get_possible_moves()
+    possible_moves = Game.get_possible_moves(player_num)
     possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,1:].squeeze()
     
     sample_move = possible_moves[0]
@@ -91,13 +92,13 @@ def compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, 
 
     Game = type(conversations[0].game)
     p1_estimation = estimate_strategy(
-        train_llm, [c.get_query() for c in partial_conversations], Game=Game, other_name="user"
+        train_llm, [c.get_query() for c in partial_conversations], Game=Game, player_num=2-train_llm_num, other_name="user"
     )
     p1_strategy = estimate_strategy(
-        train_llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name="user"
+        train_llm, [c.get_query() for c in partial_conversations], Game=Game, player_num=train_llm_num, other_name=None
     )
     p2_strategy = estimate_strategy(
-        opponent_llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name=None
+        opponent_llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, player_num=2-train_llm_num, other_name=None
     )
     
     part_indices = [0] + list(accumulate(parts_per_conversation))
@@ -138,8 +139,8 @@ def RPS_score(move1, move2):
     score = (mapping[move1] - mapping[move2] + 3) % 3
     score = 0 if score == 2 else score+1
     return score
-def ev(move, strategy):
-    return sum(RPS_score(move, move2) * strategy[move2] for move2 in strategy)
+def ev(move, estimation):
+    return sum(RPS_score(move, move2) * estimation[move2] for move2 in estimation)
 
 def individual_stateRelativePerformance(estimation, strategy):
     moves_evs = {move : ev(move, estimation) for move in strategy}
@@ -163,8 +164,9 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
 # i.e. How much e.v. can I get against the opponent's strategy
 
 def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
-    _, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
+    _, p1_strategy, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
+    p1_moves = p1_strategy[0][0].keys()
     return [
-        max(ev(move, conv_strategy[-1]) for move in conv_strategy[-1])
+        max(ev(move, conv_strategy[-1]) for move in p1_moves)
         for conv_strategy in p2_strategy if len(conv_strategy) > 0
     ]
