@@ -3,24 +3,16 @@ import torch
 import math
 import re
 
-from functools import partial
+from itertools import accumulate
+from functools import partial, lru_cache
 
 def get_eval_metrics(train_llm, opponent_llm):
     return {
         "word_based_loss" : wordBasedLoss,
-        "internal_state_evaluation" : partial(internalStateEvaluation, train_llm=train_llm, opponent_llm=opponent_llm)
+        "internal_state_evaluation" : partial(internalStateEvaluation, train_llm=train_llm, opponent_llm=opponent_llm),
     }
 
-
-########### Internal State Evaluation ###########
-
-# kl divergence computation specifically for the case of p, q being dictionaries
-def kl_div(p, q):
-    kl_div = 0.0
-    for event, p_prob in p.items():
-        q_prob = q[event]
-        kl_div += p_prob * math.log(p_prob / q_prob)
-    return kl_div
+########### Previous common part ###########
 
 # other_name=None indicates that the strategy to estimate is llm's strategy
 def estimate_strategy(llm, queries, Game, other_name=None):
@@ -59,21 +51,31 @@ def estimate_strategy(llm, queries, Game, other_name=None):
     return [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
 
 
-def internalStateEvaluation(conversations, train_llm_num, llm_trained, llm_opponent):
+@lru_cache(maxsize=1)
+def compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent):
+    print("Computing new strategies and estimations", flush=True)
+
     partial_conversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]
     parts_per_conversation = [len(c) for c in partial_conversations]
     partial_conversations = sum(partial_conversations, [])
 
     Game = type(conversations[0].game)
-    player_1_estimation = estimate_strategy(
+    p1_estimation = estimate_strategy(
         llm_trained, [c.get_query() for c in partial_conversations], Game=Game, other_name="user"
     )
-    player_2_strategy = estimate_strategy(
+    p1_strategy = estimate_strategy(
+        llm_trained, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name="user"
+    )
+    p2_strategy = estimate_strategy(
         llm_opponent, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name=None
     )
+    
+    part_indices = [0] + list(accumulate(parts_per_conversation))
+    p1_estimation = [ p1_estimation[start:end] for start, end in zip(part_indices[:-1], part_indices[1:]) ]
+    p1_strategy = [ p1_strategy[start:end] for start, end in zip(part_indices[:-1], part_indices[1:]) ]
+    p2_strategy = [ p2_strategy[start:end] for start, end in zip(part_indices[:-1], part_indices[1:]) ]
 
-    kl_divs = [kl_div(est, strategy) for est, strategy in zip(player_1_estimation, player_2_strategy)]
-    return [float(np.mean(group)) for group in np.split(kl_divs, np.cumsum(parts_per_conversation)[:-1])]
+    return p1_estimation, p1_strategy, p2_strategy
 
 
 ########### Word Based Loss ###########
@@ -91,3 +93,24 @@ def inividual_wordBasedLoss(conversation, train_llm_num):
 
 def wordBasedLoss(conversations, train_llm_num):
     return [inividual_wordBasedLoss(c, train_llm_num) for c in conversations]
+
+
+########### Internal State Evaluation ###########
+
+# kl divergence computation specifically for the case of p, q being dictionaries
+def kl_div(p, q):
+    kl_div = 0.0
+    for event, p_prob in p.items():
+        q_prob = q[event]
+        kl_div += p_prob * math.log(p_prob / q_prob)
+    return kl_div
+
+def internalStateEvaluation(conversations, train_llm_num, llm_trained, llm_opponent):
+    p1_estimation, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent)
+
+    return [
+        float(np.mean(
+            kl_div(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
+        )) 
+        for conv_est, conv_strategy in zip(p1_estimation, p2_strategy)
+    ]
