@@ -50,7 +50,6 @@ class BaseCustomEvalTrainer:
                 print("Start custom evaluation", flush=True)
                 for metric_name, func in self.eval_funcs.items():
                     metrics[metric_name] += sum(func(full_conversations, train_llm_num))
-                # metrics["word_based_loss"] += sum(wordBasedLoss(c, train_llm_num) for c in full_conversations)
 
             num_samples = self.root_gens_iteration*num_iterations
             for k in metrics:

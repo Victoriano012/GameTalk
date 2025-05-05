@@ -40,6 +40,7 @@ class RPS():
         if player_num%2 == 1: return [x for x in [RPS.ROCK, RPS.PAPER, RPS.SCISSORS] if x not in RPS.banned_moves_1]
         if player_num%2 == 0: return [x for x in [RPS.ROCK, RPS.PAPER, RPS.SCISSORS] if x not in RPS.banned_moves_2]
 
+
     def __init__(self, id_1, id_2, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, move=None, banned_moves=RPS.banned_moves_1)
         self.player_2 = SimpleNamespace(id=id_2, move=None, banned_moves=RPS.banned_moves_2)
@@ -137,6 +138,12 @@ def price_to_int(s):
         return None
 
 class BertrandCompetition():
+    
+    @staticmethod
+    def show_moves(): return False
+    @staticmethod
+    def get_possible_moves(player_num): return ["$" + str(x) for x in range(0,1000)]
+
     @autoassign
     def __init__(self, id_1, id_2, cost, demand_den, max_price_with_demand, **kwargs):
         self.player_1 = SimpleNamespace(id=id_1, moves=[])
@@ -199,10 +206,6 @@ class BertrandCompetition():
         p1_error = len(self.player_1.moves) > 0 and self.player_1.moves[-1] == 'error'
         p2_error = len(self.player_2.moves) > 0 and self.player_2.moves[-1] == 'error'
         return p1_error or p2_error
-        
-    @staticmethod
-    def show_moves():
-        return False
     
     def is_error(self):
         moves1, moves2 = self.player_1.moves, self.player_2.moves

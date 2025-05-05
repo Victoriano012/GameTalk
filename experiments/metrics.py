@@ -6,6 +6,7 @@ import re
 from itertools import accumulate
 from functools import partial
 
+from games import RPS, BertrandCompetition
 from utils import simple_cache
 
 def get_eval_metrics(train_llm, opponent_llm):
@@ -41,7 +42,7 @@ def wordBasedLoss(conversations, train_llm_num):
 def estimate_strategy(llm, queries, Game, player_num, other_name=None):
 
     possible_moves = Game.get_possible_moves(player_num)
-    possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,1:].squeeze()
+    possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,-1]
     
     sample_move = possible_moves[0]
     sample_token = possible_tokens[0]
@@ -100,6 +101,34 @@ def compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, 
 
     return p1_estimation, p1_strategy, p2_strategy
 
+### ev func
+
+def RPS_score(move1, move2):
+    mapping = {"rock": 0, "paper": 1, "scissors": 2}
+    score = (mapping[move1] - mapping[move2] + 3) % 3
+    score = 0 if score == 2 else score+1
+    return score
+
+def get_allmoves_ev(estimation, strategy, game):
+    if type(game) == RPS:
+        return {
+            move : sum(RPS_score(move, move2) * estimation[move2] for move2 in estimation) 
+        for move in strategy}
+    elif type(game) == BertrandCompetition:
+        cost, max_price, demand_den = game.cost, game.max_price_with_demand, game.demand_den
+
+        estimation = [estimation["$" + str(i)] for i in range(len(estimation))]
+        demand_prob = 0.
+        allmoves_ev = []
+        for i in range(len(estimation)-1, -1, -1):
+            allmoves_ev.append(
+                estimation[i] * (i-cost) * max(0, (max_price - i) // (2*demand_den))
+                + demand_prob * (i-cost) * max(0, (max_price - i) // demand_den)
+            )
+            demand_prob += estimation[i]
+        allmoves_ev = list(reversed(allmoves_ev))
+        return { "$" + str(i) : allmoves_ev[i] for i in range(len(allmoves_ev)) }
+
 
 ########### Internal State Evaluation ###########
 # i.e. How well does my internal state adjust to the opponent strategy
@@ -126,16 +155,8 @@ def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_ll
 ########### State-Relative Performance ###########
 # i.e. How well do I perform conditioned to my internal state
 
-def RPS_score(move1, move2):
-    mapping = {"rock": 0, "paper": 1, "scissors": 2}
-    score = (mapping[move1] - mapping[move2] + 3) % 3
-    score = 0 if score == 2 else score+1
-    return score
-def ev(move, estimation):
-    return sum(RPS_score(move, move2) * estimation[move2] for move2 in estimation)
-
-def individual_stateRelativePerformance(estimation, strategy):
-    moves_evs = {move : ev(move, estimation) for move in strategy}
+def individual_stateRelativePerformance(estimation, strategy, game):
+    moves_evs = get_allmoves_ev(estimation, strategy, game)
     best_ev, worse_ev = max(moves_evs.values()), min(moves_evs.values())
 
     my_ev = sum(strategy[move] * moves_evs[move] for move in strategy)
@@ -146,9 +167,9 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
 
     return [
         float(np.mean([
-            individual_stateRelativePerformance(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
+            individual_stateRelativePerformance(est, strategy, c.game) for est, strategy in zip(conv_est, conv_strategy)
         ]))
-        for conv_est, conv_strategy in zip(p1_estimation, p1_strategy)
+        for conv_est, conv_strategy, c in zip(p1_estimation, p1_strategy, conversations)
     ]
 
 
@@ -157,8 +178,7 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
 
 def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
     _, p1_strategy, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
-    p1_moves = p1_strategy[0][0].keys()
     return [
-        max(ev(move, conv_strategy[-1]) for move in p1_moves)
-        for conv_strategy in p2_strategy if len(conv_strategy) > 0
+        max(get_allmoves_ev(p2_strategy, p1_strategy[0][0], c.game).values())
+        for conv_strategy, c in zip(p2_strategy, conversations) if len(conv_strategy) > 0
     ]
