@@ -6,6 +6,8 @@ import re
 from itertools import accumulate
 from functools import partial
 
+from utils import simple_cache
+
 def get_eval_metrics(train_llm, opponent_llm):
     return {
         "word_based_loss" : wordBasedLoss,
@@ -71,16 +73,6 @@ def estimate_strategy(llm, queries, Game, player_num, other_name=None):
 
     return [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
 
-def simple_cache(func):
-    last_call = (None, None)
-
-    def wrapper(*args, **kwargs):
-        nonlocal last_call
-        if (args, kwargs) != last_call[0]:
-            last_call = ((args, kwargs), func(*args, **kwargs))
-        return last_call[1]
-
-    return wrapper
 
 @simple_cache
 def compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm):

@@ -30,3 +30,14 @@ def get_wandb_id(name, resume):
 
     assert name in d, f"{name} has not been previously trained, you cannot resume from it"
     return name + '-' + str(d[name])
+
+def simple_cache(func):
+    last_call = (None, None)
+
+    def wrapper(*args, **kwargs):
+        nonlocal last_call
+        if (args, kwargs) != last_call[0]:
+            last_call = ((args, kwargs), func(*args, **kwargs))
+        return last_call[1]
+
+    return wrapper
