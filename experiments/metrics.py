@@ -6,7 +6,7 @@ import re
 from itertools import accumulate
 from functools import partial
 
-from games import RPS, BertrandCompetition
+from games import RPS, BertrandCompetition, SizePrizeGame
 from utils import simple_cache
 
 def get_eval_metrics(train_llm, opponent_llm):
@@ -142,6 +142,8 @@ def kl_div(p, q):
     return kl_div
 
 def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_llm):
+    if type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
+
     p1_estimation, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     return [
@@ -163,6 +165,8 @@ def individual_stateRelativePerformance(estimation, strategy, game):
     return (my_ev - worse_ev) / (best_ev - worse_ev)
 
 def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_llm):
+    if type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
+    
     p1_estimation, p1_strategy, _ = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     return [
@@ -177,6 +181,8 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
 # i.e. How much e.v. can I get against the opponent's strategy
 
 def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
+    if type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
+    
     _, p1_strategy, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
     return [
         max(get_allmoves_ev(p2_strategy, p1_strategy[0][0], c.game).values())
