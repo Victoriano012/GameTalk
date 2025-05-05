@@ -166,5 +166,5 @@ def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
     _, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
     return [
         max(ev(move, conv_strategy[-1]) for move in conv_strategy[-1])
-        for conv_strategy in p2_strategy
+        for conv_strategy in p2_strategy if len(conv_strategy) > 0
     ]
