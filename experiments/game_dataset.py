@@ -82,7 +82,7 @@ class GameDataset(Dataset):
 
     def create_eval_batch(self, num_root_generations=None):
         new_eval_batch, eval_llm_num = self._create_batch(num_root_generations=num_root_generations)
-        self.eval_batch.append(new_eval_batch)
+        self.eval_batch += new_eval_batch
         return new_eval_batch, eval_llm_num
 
     def _create_batch(self, num_root_generations=None):
