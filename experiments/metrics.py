@@ -10,7 +10,10 @@ def get_eval_metrics(train_llm, opponent_llm):
     return {
         "word_based_loss" : wordBasedLoss,
         "internal_state_evaluation" : partial(internalStateEvaluation, train_llm=train_llm, opponent_llm=opponent_llm),
+        "state_relative_performance" : partial(stateRelativePerformance, train_llm=train_llm, opponent_llm=opponent_llm),
+        "leverage_opportunity" : partial(leverageOpportunity, train_llm=train_llm, opponent_llm=opponent_llm),
     }
+
 
 ########### Previous common part ###########
 
@@ -96,6 +99,7 @@ def wordBasedLoss(conversations, train_llm_num):
 
 
 ########### Internal State Evaluation ###########
+# i.e. How well does my internal state adjust to the opponent strategy
 
 # kl divergence computation specifically for the case of p, q being dictionaries
 def kl_div(p, q):
@@ -113,4 +117,44 @@ def internalStateEvaluation(conversations, train_llm_num, llm_trained, llm_oppon
             kl_div(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
         )) 
         for conv_est, conv_strategy in zip(p1_estimation, p2_strategy)
+    ]
+
+
+########### State-Relative Performance ###########
+# i.e. How well do I perform conditioned to my internal state
+
+def RPS_score(move1, move2):
+    mapping = {"rock": 0, "paper": 1, "scissors": 2}
+    score = (mapping[move1] - mapping[move2] + 3) % 3
+    score = 0 if score == 2 else score+1
+    return score
+def ev(move, strategy):
+    return sum(RPS_score(move, move2) * strategy[move2] for move2 in strategy)
+
+def individual_stateRelativePerformance(estimation, strategy):
+    moves_evs = {move : ev(move, estimation) for move in strategy}
+    best_ev, worse_ev = max(moves_evs.values()), min(moves_evs.values())
+
+    my_ev = sum(strategy[move] * moves_evs[move] for move in strategy)
+    return (my_ev - worse_ev) / (best_ev - worse_ev)
+
+def stateRelativePerformance(conversations, train_llm_num, llm_trained, llm_opponent):
+    p1_estimation, p1_strategy, _ = compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent)
+
+    return [
+        float(np.mean(
+            individual_stateRelativePerformance(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
+        )) 
+        for conv_est, conv_strategy in zip(p1_estimation, p1_strategy)
+    ]
+
+
+########### Leverage Opportunity ###########
+# i.e. How much e.v. can I get against the opponent's strategy
+
+def leverageOpportunity(conversations, train_llm_num, llm_trained, llm_opponent):
+    _, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent)
+    return [
+        max(ev(move, conv_strategy[-1]) for move in conv_strategy[-1])
+        for conv_strategy in p2_strategy
     ]
