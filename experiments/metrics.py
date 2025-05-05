@@ -4,7 +4,7 @@ import math
 import re
 
 from itertools import accumulate
-from functools import partial, lru_cache
+from functools import partial
 
 def get_eval_metrics(train_llm, opponent_llm):
     return {
@@ -13,6 +13,23 @@ def get_eval_metrics(train_llm, opponent_llm):
         "state_relative_performance" : partial(stateRelativePerformance, train_llm=train_llm, opponent_llm=opponent_llm),
         "leverage_opportunity" : partial(leverageOpportunity, train_llm=train_llm, opponent_llm=opponent_llm),
     }
+
+
+########### Word Based Loss ###########
+
+bad_words = []
+def inividual_wordBasedLoss(conversation, train_llm_num):
+    word_based_loss = 0.0
+    player = conversation.player_1 if train_llm_num%2 == 1 else conversation.player_2
+    for parsed_action in player.parsed_actions:
+        if 'talk' not in parsed_action:
+            continue
+        talk = parsed_action['talk']
+        word_based_loss += sum(len(re.findall(r'\b' + re.escape(word) + r'\b', talk)) for word in bad_words)
+    return word_based_loss
+
+def wordBasedLoss(conversations, train_llm_num):
+    return [inividual_wordBasedLoss(c, train_llm_num) for c in conversations]
 
 
 ########### Previous common part ###########
@@ -53,9 +70,19 @@ def estimate_strategy(llm, queries, Game, other_name=None):
 
     return [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
 
+def simple_cache(func):
+    last_call = (None, None)
 
-@lru_cache(maxsize=1)
-def compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent):
+    def wrapper(*args, **kwargs):
+        nonlocal last_call
+        if (args, kwargs) != last_call[0]:
+            last_call = ((args, kwargs), func(*args, **kwargs))
+        return last_call[1]
+
+    return wrapper
+
+@simple_cache
+def compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm):
     print("Computing new strategies and estimations", flush=True)
 
     partial_conversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]
@@ -64,13 +91,13 @@ def compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained
 
     Game = type(conversations[0].game)
     p1_estimation = estimate_strategy(
-        llm_trained, [c.get_query() for c in partial_conversations], Game=Game, other_name="user"
+        train_llm, [c.get_query() for c in partial_conversations], Game=Game, other_name="user"
     )
     p1_strategy = estimate_strategy(
-        llm_trained, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name="user"
+        train_llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name="user"
     )
     p2_strategy = estimate_strategy(
-        llm_opponent, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name=None
+        opponent_llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, other_name=None
     )
     
     part_indices = [0] + list(accumulate(parts_per_conversation))
@@ -79,23 +106,6 @@ def compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained
     p2_strategy = [ p2_strategy[start:end] for start, end in zip(part_indices[:-1], part_indices[1:]) ]
 
     return p1_estimation, p1_strategy, p2_strategy
-
-
-########### Word Based Loss ###########
-
-bad_words = []
-def inividual_wordBasedLoss(conversation, train_llm_num):
-    word_based_loss = 0.0
-    player = conversation.player_1 if train_llm_num%2 == 1 else conversation.player_2
-    for parsed_action in player.parsed_actions:
-        if 'talk' not in parsed_action:
-            continue
-        talk = parsed_action['talk']
-        word_based_loss += sum(len(re.findall(r'\b' + re.escape(word) + r'\b', talk)) for word in bad_words)
-    return word_based_loss
-
-def wordBasedLoss(conversations, train_llm_num):
-    return [inividual_wordBasedLoss(c, train_llm_num) for c in conversations]
 
 
 ########### Internal State Evaluation ###########
@@ -109,13 +119,13 @@ def kl_div(p, q):
         kl_div += p_prob * math.log(p_prob / q_prob)
     return kl_div
 
-def internalStateEvaluation(conversations, train_llm_num, llm_trained, llm_opponent):
-    p1_estimation, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent)
+def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_llm):
+    p1_estimation, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     return [
-        float(np.mean(
+        float(np.mean([
             kl_div(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
-        )) 
+        ])) 
         for conv_est, conv_strategy in zip(p1_estimation, p2_strategy)
     ]
 
@@ -138,13 +148,13 @@ def individual_stateRelativePerformance(estimation, strategy):
     my_ev = sum(strategy[move] * moves_evs[move] for move in strategy)
     return (my_ev - worse_ev) / (best_ev - worse_ev)
 
-def stateRelativePerformance(conversations, train_llm_num, llm_trained, llm_opponent):
-    p1_estimation, p1_strategy, _ = compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent)
+def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_llm):
+    p1_estimation, p1_strategy, _ = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     return [
-        float(np.mean(
+        float(np.mean([
             individual_stateRelativePerformance(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
-        )) 
+        ]))
         for conv_est, conv_strategy in zip(p1_estimation, p1_strategy)
     ]
 
@@ -152,8 +162,8 @@ def stateRelativePerformance(conversations, train_llm_num, llm_trained, llm_oppo
 ########### Leverage Opportunity ###########
 # i.e. How much e.v. can I get against the opponent's strategy
 
-def leverageOpportunity(conversations, train_llm_num, llm_trained, llm_opponent):
-    _, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, llm_trained, llm_opponent)
+def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
+    _, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
     return [
         max(ev(move, conv_strategy[-1]) for move in conv_strategy[-1])
         for conv_strategy in p2_strategy
