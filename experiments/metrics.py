@@ -109,11 +109,11 @@ def RPS_score(move1, move2):
     score = 0 if score == 2 else score+1
     return score
 
-def get_allmoves_ev(estimation, strategy, game):
+def get_allmoves_ev(estimation, moves, game):
     if type(game) == RPS:
         return {
             move : sum(RPS_score(move, move2) * estimation[move2] for move2 in estimation) 
-        for move in strategy}
+        for move in moves}
     elif type(game) == BertrandCompetition:
         cost, max_price, demand_den = game.cost, game.max_price_with_demand, game.demand_den
 
@@ -142,7 +142,7 @@ def kl_div(p, q):
     return kl_div
 
 def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_llm):
-    if type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
+    if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
 
     p1_estimation, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
@@ -158,14 +158,14 @@ def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_ll
 # i.e. How well do I perform conditioned to my internal state
 
 def individual_stateRelativePerformance(estimation, strategy, game):
-    moves_evs = get_allmoves_ev(estimation, strategy, game)
+    moves_evs = get_allmoves_ev(estimation, strategy.keys(), game)
     best_ev, worse_ev = max(moves_evs.values()), min(moves_evs.values())
 
     my_ev = sum(strategy[move] * moves_evs[move] for move in strategy)
     return (my_ev - worse_ev) / (best_ev - worse_ev)
 
 def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_llm):
-    if type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
+    if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
     
     p1_estimation, p1_strategy, _ = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
@@ -181,10 +181,12 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
 # i.e. How much e.v. can I get against the opponent's strategy
 
 def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
-    if type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
+    if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
     
-    _, p1_strategy, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
+    _, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
+
+    moves = conversations[0].game.get_possible_moves(train_llm_num)
     return [
-        max(get_allmoves_ev(p2_strategy, p1_strategy[0][0], c.game).values())
+        max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values())
         for conv_strategy, c in zip(p2_strategy, conversations) if len(conv_strategy) > 0
     ]
