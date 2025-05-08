@@ -146,7 +146,7 @@ def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_ll
     return [
         float(np.mean([
             kl_div(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
-        ])) 
+        ])) if len(conv_strategy) > 0 else 0.0
         for conv_est, conv_strategy in zip(p1_estimation, p2_strategy)
     ]
 
@@ -169,7 +169,7 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
     return [
         float(np.mean([
             individual_stateRelativePerformance(est, strategy, c.game) for est, strategy in zip(conv_est, conv_strategy)
-        ]))
+        ])) if len(conv_strategy) > 0 else 0.0
         for conv_est, conv_strategy, c in zip(p1_estimation, p1_strategy, conversations)
     ]
 
@@ -184,8 +184,8 @@ def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
 
     moves = conversations[0].game.get_possible_moves(train_llm_num)
     return [
-        max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values())
-        for conv_strategy, c in zip(p2_strategy, conversations) if len(conv_strategy) > 0
+        max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values()) if len(conv_strategy) > 0 else 0.
+        for conv_strategy, c in zip(p2_strategy, conversations)
     ]
 
 
