@@ -48,11 +48,8 @@ def estimate_strategy(llm, queries, Game, player_num, other_name=None, long_retu
     sample_move = possible_moves[0]
     sample_token = possible_tokens[0]
 
-    if other_name == None:
-        queries = [q.removesuffix("<think>") + "<play> " + sample_move for q in queries]
-    else:
-        for idx in range(len(queries)):
-            queries[idx] += f" I think {other_name} will play " + sample_move
+    queries = [q.removesuffix("<think>") + "<play> " + sample_move for q in queries] if other_name == None else \
+        [q + f" I think {other_name} will play " + sample_move for q in queries]
             
     tokenized = llm.tokenizer(queries, padding=True, truncation=True, return_tensors='pt').to('cuda')
     assert (sample_token == tokenized['input_ids'][:,-1]).all()
