@@ -207,7 +207,8 @@ def leverageOpportunity_reward(
     if len(conversation) == 0 or type(conversation[0].game) == SizePrizeGame: return [0.0] * len(conversation)
 
     train_llm_num = train_llm_num[0]
-    conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
+    if completions is not None:
+        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
     p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm)
 
     moves = conversation[0].game.get_possible_moves(train_llm_num)

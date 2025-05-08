@@ -179,7 +179,8 @@ def game_reward(
     ):
     print("\nComputing rewards", flush=True)
     train_llm_num = train_llm_num[0]
-    conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
+    if completions is not None:
+        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
 
     rewards = [c.game.score(train_llm_num) for c in conversation]
 
