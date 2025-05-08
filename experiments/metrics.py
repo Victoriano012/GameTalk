@@ -6,6 +6,7 @@ import re
 from itertools import accumulate
 from functools import partial
 
+from game_dataset import finish_conversation_from_completion
 from games import RPS, BertrandCompetition, SizePrizeGame
 from utils import simple_cache
 
@@ -39,7 +40,7 @@ def wordBasedLoss(conversations, train_llm_num):
 
 # other_name=None indicates that the strategy to estimate is llm's strategy
 # player_num is that of the player whose strategy is being estimated
-def estimate_strategy(llm, queries, Game, player_num, other_name=None):
+def estimate_strategy(llm, queries, Game, player_num, other_name=None, long_return=False):
 
     possible_moves = Game.get_possible_moves(player_num)
     possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,-1]
@@ -48,11 +49,7 @@ def estimate_strategy(llm, queries, Game, player_num, other_name=None):
     sample_token = possible_tokens[0]
 
     if other_name == None:
-        think_token = "<think>"
-        for idx in range(len(queries)):
-            if queries[idx].endswith(think_token):
-                queries[idx] = queries[idx][:len(think_token)]
-            queries[idx] += f"<play> " + sample_move
+        queries = [q.removesuffix("<think>") + "<play> " + sample_move for q in queries]
     else:
         for idx in range(len(queries)):
             queries[idx] += f" I think {other_name} will play " + sample_move
@@ -72,11 +69,14 @@ def estimate_strategy(llm, queries, Game, player_num, other_name=None):
             probs_list.append(probs)
     probs = torch.cat(probs_list, dim=0)
 
-    return [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
+    strat = [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
+ 
+    if long_return: return strat, queries
+    else: return strat
 
 
 @simple_cache
-def compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm):
+def compute_strategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm):
     print("Computing new strategies and estimations", flush=True)
 
     partial_conversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]
@@ -85,13 +85,13 @@ def compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, 
 
     Game = type(conversations[0].game)
     p1_estimation = estimate_strategy(
-        train_llm, [c.get_query() for c in partial_conversations], Game=Game, player_num=2-train_llm_num, other_name="user"
+        train_llm, [c.get_query() for c in partial_conversations], Game=Game, player_num=3-train_llm_num, other_name="user"
     )
     p1_strategy = estimate_strategy(
         train_llm, [c.get_query() for c in partial_conversations], Game=Game, player_num=train_llm_num, other_name=None
     )
     p2_strategy = estimate_strategy(
-        opponent_llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, player_num=2-train_llm_num, other_name=None
+        opponent_llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, player_num=3-train_llm_num, other_name=None
     )
     
     part_indices = [0] + list(accumulate(parts_per_conversation))
@@ -144,7 +144,7 @@ def kl_div(p, q):
 def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_llm):
     if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
 
-    p1_estimation, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
+    p1_estimation, _, p2_strategy = compute_strategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     return [
         float(np.mean([
@@ -167,7 +167,7 @@ def individual_stateRelativePerformance(estimation, strategy, game):
 def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_llm):
     if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
     
-    p1_estimation, p1_strategy, _ = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
+    p1_estimation, p1_strategy, _ = compute_strategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     return [
         float(np.mean([
@@ -183,10 +183,46 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
 def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
     if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
     
-    _, _, p2_strategy = compute_estrategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
+    _, _, p2_strategy = compute_strategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     moves = conversations[0].game.get_possible_moves(train_llm_num)
     return [
         max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values())
         for conv_strategy, c in zip(p2_strategy, conversations) if len(conv_strategy) > 0
     ]
+
+
+### Leverage Opportunity as a reward function
+
+@simple_cache
+def compute_end_strategy(conversations, llm_num, llm):
+    partial_conversations = [list(c.get_subconversations(llm_num))[-1] for c in conversations]
+
+    Game = type(conversations[0].game)
+    return estimate_strategy(
+        llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, player_num=llm_num, other_name=None, long_return=True
+    )
+    
+def leverageOpportunity_reward(
+        prompts, completions, conversation, train_llm_num, # from current batch
+        train_llm, opponent_llm, conversation_file, config # general
+    ):
+    if len(conversation) == 0 or type(conversation[0].game) == SizePrizeGame: return [0.0] * len(conversation)
+
+    train_llm_num = train_llm_num[0]
+    conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
+    p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm)
+
+    moves = conversation[0].game.get_possible_moves(train_llm_num)
+    rewards = [
+        max(get_allmoves_ev(conv_strategy, moves, c.game).values())
+        for conv_strategy, c in zip(p2_strategy, conversation)
+    ]
+    
+    print('train conversations (leverageOpportunity_reward)', file=conversation_file)
+    for x in range(len(conversation)):
+        print("CONVERSATION:\n", queries[x], file=conversation_file)
+        print("strategy :", p2_strategy[x], flush=True, file=conversation_file)
+        print("leverageOpportunity_reward :", rewards[x], '\n'*3, flush=True, file=conversation_file)
+
+    return rewards

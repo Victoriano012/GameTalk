@@ -15,8 +15,8 @@ from CustomGRPOTrainer import CustomGRPOTrainer, CustomGRPOConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from llm_utils import LLM
+from metrics import get_eval_metrics, leverageOpportunity_reward
 from utils import get_wandb_id
-from metrics import get_eval_metrics
 
 
 @hydra.main(config_path='config', config_name='config', version_base=None)
@@ -57,9 +57,18 @@ def __main__(config):
     callbacks = [dataset_callback, metrics_logger, earlyStop]
 
     ### Reward function ###
-    reward_mod = partial(game_reward, train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
-    update_wrapper(reward_mod, game_reward)
+    reward_funcs = [game_reward]
+    reward_weights = [1.]
+
+    if config.train.leverageOpportunity_weight:
+        reward_funcs.append(leverageOpportunity_reward)
+        reward_weights.append(config.train.leverageOpportunity_weight)
     
+    for i in range(len(reward_funcs)):
+        reward_mod = partial(reward_funcs[i], train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
+        update_wrapper(reward_mod, reward_funcs[i])
+        reward_funcs[i] = reward_mod
+
     ### Trainer + Config ###
     Config = {
         "grpo" : CustomGRPOConfig,
@@ -77,6 +86,8 @@ def __main__(config):
     training_args = {k: v for k, v in config.train.items() if k in Config_params}
     training_args = Config(
         **training_args,
+
+        reward_weights=reward_weights,
 
         output_dir=config.logs.folder + config.run_name,
         run_name=config.run_name

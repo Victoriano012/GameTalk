@@ -7,9 +7,8 @@ from math import floor
 import random
 
 from conversation_manager import ConversationManager
-from utils import masked_call
+from utils import masked_call, autoassign, simple_cache
 from games import get_game
-from utils import autoassign
 
 @torch.no_grad()
 def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config):
@@ -164,16 +163,23 @@ class MetricsLogger(TrainerCallback):
                 print("REWARD (Player-1):", c.game.score(1), file=self.eval_conversation_file, flush=True)
                 print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.eval_conversation_file, flush=True)
 
+
+
+@simple_cache
+def finish_conversation_from_completion(
+        completions, conversation, train_llm, opponent_llm, train_llm_num, config
+    ):
+    conversations = [deepcopy(c) for c in conversation]
+    for idx, action in enumerate(completions): conversations[idx].turn(action)
+    return finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
+
 def game_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
         train_llm, opponent_llm, conversation_file, config # general
     ):
     print("\nComputing rewards", flush=True)
-    conversations = [deepcopy(c) for c in conversation]
-    for idx, action in enumerate(completions): conversations[idx].turn(action)
-
     train_llm_num = train_llm_num[0]
-    conversation = finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
+    conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
 
     rewards = [c.game.score(train_llm_num) for c in conversation]
 
