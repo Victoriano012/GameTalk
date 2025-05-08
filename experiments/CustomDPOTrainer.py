@@ -116,10 +116,10 @@ class CustomDPOTrainer(OnlineDPOTrainer):
 
         ref_logprobs = (ref_logprobs*completion_mask.bool()).sum(1)
         logprobs = (logprobs*completion_mask.bool()).sum(1)
-        dpo_weights = torch.exp(self.beta * (ref_logprobs - logprobs))
+        dpo_weights = torch.exp(self.beta * (logprobs - ref_logprobs))
         
-        dpo_weights = dpo_weights.view(batch_size, self.args.num_generations)
-        rewards_view = rewards.view(batch_size, self.args.num_generations)
+        dpo_weights = dpo_weights.view(self.args.num_generations, batch_size).t()
+        rewards_view = rewards.view(self.args.num_generations, batch_size).t()
 
         print(f"Computing group losses, bs={batch_size}")
         losses = []
