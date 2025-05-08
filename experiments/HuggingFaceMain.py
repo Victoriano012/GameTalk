@@ -96,7 +96,7 @@ def __main__(config):
     trainer = Trainer(
         model=train_llm.model,
         processing_class=train_llm.tokenizer,
-        reward_funcs=reward_mod,
+        reward_funcs=reward_funcs,
         args=training_args,
         train_dataset=dataset,
         eval_dataset=dataset,
