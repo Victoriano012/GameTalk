@@ -16,6 +16,9 @@ def get_eval_metrics(train_llm, opponent_llm):
         "internal_state_evaluation" : partial(internalStateEvaluation, train_llm=train_llm, opponent_llm=opponent_llm),
         "state_relative_performance" : partial(stateRelativePerformance, train_llm=train_llm, opponent_llm=opponent_llm),
         "leverage_opportunity" : partial(leverageOpportunity, train_llm=train_llm, opponent_llm=opponent_llm),
+        "internal_state_evaluation (lastTurn)" : partial(internalStateEvaluation, train_llm=train_llm, opponent_llm=opponent_llm, lastTurn=True),
+        "state_relative_performance (lastTurn)" : partial(stateRelativePerformance, train_llm=train_llm, opponent_llm=opponent_llm, lastTurn=True),
+        "leverage_opportunity (all turns)" : partial(leverageOpportunity, train_llm=train_llm, opponent_llm=opponent_llm, lastTurn=False),
     }
 
 
@@ -138,12 +141,16 @@ def kl_div(p, q):
         kl_div += p_prob * math.log(p_prob / q_prob)
     return kl_div
 
-def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_llm):
+def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_llm, lastTurn=False):
     if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
 
     p1_estimation, _, p2_strategy = compute_strategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
-    return [
+    if lastTurn: return [
+        kl_div(conv_est[-1], conv_strategy[-1]) if len(conv_strategy) > 0 else 0.0
+        for conv_est, conv_strategy, c in zip(p1_estimation, p2_strategy)
+    ]
+    else: return [
         float(np.mean([
             kl_div(est, strategy) for est, strategy in zip(conv_est, conv_strategy)
         ])) if len(conv_strategy) > 0 else 0.0
@@ -161,12 +168,16 @@ def individual_stateRelativePerformance(estimation, strategy, game):
     my_ev = sum(strategy[move] * moves_evs[move] for move in strategy)
     return (my_ev - worse_ev) / (best_ev - worse_ev)
 
-def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_llm):
+def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_llm, lastTurn=False):
     if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
     
     p1_estimation, p1_strategy, _ = compute_strategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
-    return [
+    if lastTurn: return [
+        individual_stateRelativePerformance(conv_est[-1], conv_strategy[-1], c.game) if len(conv_strategy) > 0 else 0.0
+        for conv_est, conv_strategy, c in zip(p1_estimation, p1_strategy, conversations)
+    ]
+    else: return [
         float(np.mean([
             individual_stateRelativePerformance(est, strategy, c.game) for est, strategy in zip(conv_est, conv_strategy)
         ])) if len(conv_strategy) > 0 else 0.0
@@ -177,14 +188,20 @@ def stateRelativePerformance(conversations, train_llm_num, train_llm, opponent_l
 ########### Leverage Opportunity ###########
 # i.e. How much e.v. can I get against the opponent's strategy
 
-def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm):
+def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm, lastTurn=True):
     if len(conversations) == 0 or type(conversations[0].game) == SizePrizeGame: return [0.0] * len(conversations)
     
     _, _, p2_strategy = compute_strategies_and_estimation(conversations, train_llm_num, train_llm, opponent_llm)
 
     moves = conversations[0].game.get_possible_moves(train_llm_num)
-    return [
+    if lastTurn: return [
         max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values()) if len(conv_strategy) > 0 else 0.
+        for conv_strategy, c in zip(p2_strategy, conversations)
+    ]
+    else: return [
+        float(np.mean([
+            max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values())
+        ])) if len(conv_strategy) > 0 else 0.
         for conv_strategy, c in zip(p2_strategy, conversations)
     ]
 
