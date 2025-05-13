@@ -1,7 +1,9 @@
 from bs4.exceptions import ParserRejectedMarkup
-from bs4 import BeautifulSoup
-from copy import deepcopy
 from utils import autoassign
+from copy import deepcopy
+from bs4 import BeautifulSoup
+import ast
+import re
 
 def parse_last(text):
     # Regular expression to find all tags with content
@@ -107,8 +109,12 @@ class ConversationManager:
     def turn(self, action):
         self.num_interactions += 1
         self.all_actions.append(action)
+
+        action = action.strip()
+        action = action if action.startswith("<think>") else "<think>" + action
+
         try:
-            parsed_action = parse_last("<think>" + action)
+            parsed_action = parse_last(action)
         except (AssertionError, ParserRejectedMarkup) as e:
             self.players[0].my_turn(action, error=True)
             self.full_conversation += self.names[0] + " did a format error:\n" + action + "\n"
@@ -137,3 +143,42 @@ class ConversationManager:
             if (idx+1) % 2 == player_num % 2:
                 yield deepcopy(conv)
             conv.turn(action)
+
+
+def conversation_to_manager(conversation_text, initial_prompt_1, initial_prompt_2, intermediate_prompt, name_1, name_2, Game):
+
+    ##### parse_conversation_text #####
+
+    lines = conversation_text.strip().splitlines()
+
+    manager_line = lines.pop(0)
+    if manager_line == "CONVERSATION:": manager_line = lines.pop(0).strip()
+    kwargs = ast.literal_eval(manager_line.removeprefix('ConversationManager: '))
+
+    turns = []
+    current_turn = []
+    current_player = None
+
+    for line in lines:
+        match = re.match(r"^Player-(1|2):$", line)
+        if not match: match = re.match(r"^Player-(1|2) did a format error:$", line)
+        pov_match = re.match(r"^Player-(1|2) pov:$", line)
+
+        if pov_match or match:
+            if current_player is not None and match:
+                assert int(match.group(1)) == 3-current_player, f"Player turns are not alternating correctly. Expected Player-{3-current_player}, got Player-{match.group(1)}." + "\n\n" + conversation_text
+            if current_player is not None:
+                turns.append('\n'.join(current_turn).strip())
+            current_player = int(match.group(1)) if match else None
+            current_turn = []
+        else: current_turn.append(line)
+        
+    if current_turn and current_player is not None:
+        turns.append('\n'.join(current_turn).strip())
+
+    ####################
+
+    conv = ConversationManager(initial_prompt_1, initial_prompt_2, intermediate_prompt, name_1, name_2, Game, **kwargs)
+    for turn in turns: conv.turn(turn)
+
+    return conv

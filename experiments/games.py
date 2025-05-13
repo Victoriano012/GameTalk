@@ -7,23 +7,11 @@ from copy import copy
 import math
 import re
 
-# Returns the game instance based on the game name
-def get_game(game_name: str):
-    if game_name == "rock-paper-scissors":
-        return RPS
-    if game_name == "bertrand-competition":
-        return BertrandCompetition
-    if game_name == "size-prize-bargaining-game":
-        return SizePrizeGame
-        
-    if game_name == "rock-scissors":
-        RPS.banned_moves_2 = [RPS.PAPER]  # TRAIN_LLM IS PLAYER 2
-        return RPS
-    return None
-
 
 # rock-paper-scissors
 class RPS():
+    NAME = "rock-paper-scissors"
+
     ROCK = "rock"
     PAPER = "paper"
     SCISSORS = "scissors"
@@ -138,7 +126,8 @@ def price_to_int(s):
         return None
 
 class BertrandCompetition():
-    
+    NAME = "bertrand-competition"
+
     @staticmethod
     def show_moves(): return False
     @staticmethod
@@ -237,6 +226,8 @@ def harmonic(n):
     return sum(1/i for i in range(1, n+1))
 
 class SizePrizeGame():
+    NAME = "size-prize-bargaining-game"
+
     ERROR = "error"
     ACCEPT = "accept"
 
@@ -346,3 +337,18 @@ class SizePrizeGame():
                 # ValueError -> cannot cast, AssertionError -> x < 0, AttributeError -> no match
                 pass
         return None
+
+
+
+all_games = [RPS, BertrandCompetition, SizePrizeGame]
+
+# Returns the game instance based on the game name
+def get_game(game_name: str):
+    for Game in all_games:
+        if game_name == Game.NAME:
+            return Game
+        
+    if game_name == "rock-scissors":
+        RPS.banned_moves_2 = [RPS.PAPER]  # TRAIN_LLM IS PLAYER 2
+        return RPS
+    return None

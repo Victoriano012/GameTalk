@@ -40,7 +40,7 @@ def wordBasedLoss(conversations, train_llm_num):
 
 # other_name=None indicates that the strategy to estimate is llm's strategy
 # player_num is that of the player whose strategy is being estimated
-def estimate_strategy(llm, queries, Game, player_num, other_name=None, long_return=False):
+def estimate_strategy(llm, queries, Game, player_num, other_name=None, return_queries=False):
 
     possible_moves = Game.get_possible_moves(player_num)
     possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,-1]
@@ -68,8 +68,7 @@ def estimate_strategy(llm, queries, Game, player_num, other_name=None, long_retu
 
     strat = [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
  
-    if long_return: return strat, queries
-    else: return strat
+    return strat if not return_queries else strat, queries
 
 
 @simple_cache
@@ -107,11 +106,11 @@ def RPS_score(move1, move2):
     return score
 
 def get_allmoves_ev(estimation, moves, game):
-    if type(game) == RPS:
+    if game.NAME == RPS.NAME:
         return {
             move : sum(RPS_score(move, move2) * estimation[move2] for move2 in estimation) 
         for move in moves}
-    elif type(game) == BertrandCompetition:
+    elif game.NAME == BertrandCompetition.NAME:
         cost, max_price, demand_den = game.cost, game.max_price_with_demand, game.demand_den
 
         estimation = [estimation["$" + str(i)] for i in range(len(estimation))]
@@ -197,7 +196,7 @@ def compute_end_strategy(conversations, llm_num, llm):
 
     Game = type(conversations[0].game)
     return estimate_strategy(
-        llm, [c.get_query(other_player=True) for c in partial_conversations], Game=Game, player_num=llm_num, other_name=None, long_return=True
+        llm, [c.get_query() for c in partial_conversations], Game=Game, player_num=llm_num, other_name=None, return_queries=True
     )
     
 def leverageOpportunity_reward(

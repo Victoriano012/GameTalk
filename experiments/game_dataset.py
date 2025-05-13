@@ -163,6 +163,7 @@ class MetricsLogger(TrainerCallback):
                 print("REWARD (Player-1):", c.game.score(1), file=self.eval_conversation_file, flush=True)
                 print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.eval_conversation_file, flush=True)
 
+            self.gameDataset.eval_batch_shown = True
 
 
 @simple_cache
