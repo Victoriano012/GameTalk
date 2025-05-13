@@ -24,55 +24,55 @@ def parse_last(text):
 
 class ConversationPlayer:
     def __init__(self, initial_prompt, player_id, game):
-        self.pov = initial_prompt
+        self.pov = [{"role": "system", "content": initial_prompt}]
         self.player_id = player_id
         self.game = game
 
-        self.starting_indices = []
-        self.ending_indices = []
+        # self.starting_indices = []
+        # self.ending_indices = []
 
         self.parsed_actions = []
 
     def my_turn(self, parsed_action, intermediate_prompt=None, error=False):
-        self.pov += "<|start_header_id|>assistant<|end_header_id|> <think>"
-        self.starting_indices.append(len(self.pov))
+        # self.starting_indices.append(len(self.pov))
 
         curr_play = None
+        curr_text = ""
 
         if error:
-            self.pov += parsed_action
+            curr_text = parsed_action
             curr_play = "error"
 
         else:
             self.parsed_actions.append(parsed_action)
 
-            if 'play' in parsed_action:
-                curr_play = parsed_action['play']
-                
-            self.pov += parsed_action['think'] + "</think>\n"
+            curr_text += "<think>" + parsed_action['think'] + "</think>\n"
             if 'talk' in parsed_action:
-                self.pov += "<talk>" + parsed_action['talk'] + "</talk> \n"
+                curr_text += "<talk>" + parsed_action['talk'] + "</talk> \n"
             if 'play' in parsed_action:
-                self.pov += "<play>" + parsed_action['play'] + "</play> \n"
-            self.pov += "<|eot_id|>"
+                curr_text += "<play>" + parsed_action['play'] + "</play> \n"
+                curr_play = parsed_action['play']
 
-        self.ending_indices.append(len(self.pov))
+        self.pov += [{"role": "assistant", "content": curr_text}]
+        # self.ending_indices.append(len(self.pov))
 
         my_kwargs, other_kwargs = self.game.make_move(curr_play, self.player_id)
         if my_kwargs is not None:
-            self.pov += intermediate_prompt.format(**my_kwargs)
+            self.pov += [{"role": "system", "content": intermediate_prompt.format(**my_kwargs)}]
         return my_kwargs, other_kwargs
 
     def other_turn(self, parsed_action, intermediate_prompt, other_kwargs):
         if 'talk' in parsed_action:
-            self.pov += "<|start_header_id|>user<|end_header_id|>" + parsed_action['talk'].strip()
+            curr_text += parsed_action['talk'].strip()
             if 'play' in parsed_action and self.game.show_moves():
-                self.pov += "\n<play>" + parsed_action['play'] + "</play>"
-            self.pov += "<|eot_id|>\n"
+                curr_text += "\n<play>" + parsed_action['play'] + "</play>"
+        self.pov += [{"role": "user", "content": curr_text}]
+
         if other_kwargs is not None:
-            self.pov += intermediate_prompt.format(**other_kwargs)
+            self.pov += [{"role": "system", "content": intermediate_prompt.format(**other_kwargs)}]
 
     def get_talk_intervals(self):
+        raise NotImplementedError("get_talk_intervals not implemented")
         return list(zip(self.starting_indices, self.ending_indices))
 
 class ConversationManager:
@@ -98,7 +98,7 @@ class ConversationManager:
 
     # other player = True -> query the player who has just played
     def get_query(self, other_player=False):
-        return self.players[other_player].pov + "<|start_header_id|>assistant<|end_header_id|> <think>"
+        return self.players[other_player].pov
 
     def get_player(self, player_num):
         return self.player_1 if player_num%2 == 1 else self.player_2
@@ -128,7 +128,6 @@ class ConversationManager:
             self.full_conversation += "    <talk>" + parsed_action['talk'] + "</talk> \n"
         if 'play' in parsed_action:
             self.full_conversation += "    <play>" + parsed_action['play'] + "</play> \n"
-        
         if my_kwargs is not None:
             self.full_conversation += self.names[0] + " pov:\n" + self.intermediate_prompt.format(**my_kwargs) + "\n"
         if other_kwargs is not None:

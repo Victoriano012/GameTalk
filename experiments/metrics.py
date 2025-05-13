@@ -44,6 +44,10 @@ def wordBasedLoss(conversations, train_llm_num):
 # other_name=None indicates that the strategy to estimate is llm's strategy
 # player_num is that of the player whose strategy is being estimated
 def estimate_strategy(llm, queries, Game, player_num, other_name=None, return_queries=False):
+    queries = [
+        llm.tokenizer.apply_chat_template(q, tokenize=False, add_generation_prompt=True) + "<think>"
+        for q in queries
+    ]
 
     possible_moves = Game.get_possible_moves(player_num)
     possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,-1]

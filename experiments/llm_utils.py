@@ -41,6 +41,8 @@ class LLM(nn.Module):
         
 
     def generate(self, prompt, **kwargs):
+        if not isinstance(prompt[0], str):
+            prompt = self.tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
         inputs = self.tokenizer(prompt,padding=True,truncation=True, return_tensors="pt").to('cuda')
         output = self.model.generate(
             **inputs,
