@@ -30,7 +30,7 @@ train:
   
   beta: 0.1 # kl_coef
 
-  leverageOpportunity_weight : 1.
+  leverageOpportunity_weight : 0.
 
   ####### GRPOTrainer Config ##########
   epsilon : 0.2 # ppo_epsilon
