@@ -16,7 +16,7 @@ train:
 
   eval_strategy: "steps"
   eval_steps: 20
-  eval_on_start : True
+  eval_on_start : False
   logging_steps : 1
   logging_first_step: True
   save_steps : ${train.eval_steps}
@@ -30,12 +30,14 @@ train:
   
   beta: 0.1 # kl_coef
 
+  leverageOpportunity_weight : 1.
+
   ####### GRPOTrainer Config ##########
   epsilon : 0.2 # ppo_epsilon
   num_iterations : 1 # GRPO mu
   max_completion_length : 300
   max_prompt_length : null
-  entropy_beta: 0.01 # kl_coef
+  entropy_beta: 0.0
 
   ####### OnlineDPOTrainer Config #####
   max_new_tokens : ${train.max_completion_length}

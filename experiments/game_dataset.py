@@ -7,9 +7,8 @@ from math import floor
 import random
 
 from conversation_manager import ConversationManager
-from utils import masked_call
+from utils import masked_call, autoassign, simple_cache
 from games import get_game
-from utils import autoassign
 
 @torch.no_grad()
 def finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config):
@@ -71,16 +70,19 @@ class GameDataset(Dataset):
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
 
     def update_batch(self):
-        self.batch, self.full_conversations, self.train_llm_num = self._create_batch()
-        if not self.keep_partial_conversations:
-            self.batch = self.full_conversations
+        self.full_conversations, self.train_llm_num = self._create_batch()
+        self.batch = self.full_conversations if not self.keep_partial_conversations else \
+            sum([list(c.get_subconversations(self.train_llm_num)) for c in self.full_conversations], [])
         random.shuffle(self.batch)
 
-    def create_eval_batch(self, num_root_generations=None):
-        output = self._create_batch(num_root_generations=num_root_generations)
-        _, self.eval_batch, _ = output
+    def restart_eval_batch(self):
+        self.eval_batch = []
         self.eval_batch_shown = False
-        return output
+
+    def create_eval_batch(self, num_root_generations=None):
+        new_eval_batch, eval_llm_num = self._create_batch(num_root_generations=num_root_generations)
+        self.eval_batch += new_eval_batch
+        return new_eval_batch, eval_llm_num
 
     def _create_batch(self, num_root_generations=None):
         print("\nCreating batch", flush=True)
@@ -117,11 +119,9 @@ class GameDataset(Dataset):
         ) for i in range(num_root_generations) ]
 
         conversations = finish_conversations(conversations, self.train_llm, self.opponent_llm, train_llm_num, self.config)
-
-        all_subconversations = [list(c.get_subconversations(train_llm_num)) for c in conversations]
         print("Batch created", flush=True)
 
-        return sum(all_subconversations, []), conversations, train_llm_num
+        return conversations, train_llm_num
 
 
 class OutdateDatasetCallback(TrainerCallback):
@@ -163,16 +163,24 @@ class MetricsLogger(TrainerCallback):
                 print("REWARD (Player-1):", c.game.score(1), file=self.eval_conversation_file, flush=True)
                 print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.eval_conversation_file, flush=True)
 
+
+
+@simple_cache
+def finish_conversation_from_completion(
+        completions, conversation, train_llm, opponent_llm, train_llm_num, config
+    ):
+    conversations = [deepcopy(c) for c in conversation]
+    for idx, action in enumerate(completions): conversations[idx].turn(action)
+    return finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
+
 def game_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
         train_llm, opponent_llm, conversation_file, config # general
     ):
     print("\nComputing rewards", flush=True)
-    conversations = [deepcopy(c) for c in conversation]
-    for idx, action in enumerate(completions): conversations[idx].turn(action)
-
     train_llm_num = train_llm_num[0]
-    conversation = finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
+    if completions is not None:
+        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
 
     rewards = [c.game.score(train_llm_num) for c in conversation]
 

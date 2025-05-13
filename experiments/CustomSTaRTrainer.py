@@ -16,11 +16,10 @@ class CustomSTaRConfig(TrainingArguments):
     min_sft_part: float = 0.1
     star_batch_size: int = 1
 
+    reward_weights: list = None
 
 class CustomSTaRTrainer(IterativeSFTTrainer):
     def __init__(self, reward_funcs=None, processing_class=None, **kwargs):
-        self.reward_funcs = reward_funcs
-
         self.data_collator_2 = DPODataCollatorWithPadding(pad_token_id=processing_class.pad_token_id)
         super().__init__(processing_class=processing_class, **kwargs)
 
@@ -29,6 +28,15 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
             "reward": [],
             "batch_size": [],
         }
+        
+        
+        self.reward_funcs = reward_funcs
+        if isinstance(reward_funcs, list):
+            if self.args.reward_weights is None: self.reward_weights = [1.] * len(reward_funcs)
+            assert len(reward_funcs) == self.args.reward_weights, "Number of reward_funcs, and reward_weights should be the same"
+
+            for i in range(len(reward_funcs)):
+                self.stats[f"rewards/{reward_funcs[i].__name__}"] = []
 
     def training_step(self, model, inputs, num_items_in_batch = None):
         inputs = self._filter(inputs)
@@ -48,7 +56,16 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         return torch.tensor(0.0, device=self.model.device)
     
     def _filter(self, inputs):
-        rewards = torch.tensor([c.game.score(n) for c, n in zip(inputs['conversation'], inputs['train_llm_num'])])
+        original_inputs = inputs.copy()
+        inputs['completions'] = inputs['prompts'] = None
+        if isinstance(self.reward_funcs, list):
+            reward_per_func = [torch.Tensor(func[i](**inputs)) for func in self.reward_funcs]
+            rewards = sum(
+                    self.args.reward_weights[i] * reward_per_func[i]
+                    for i in range(len(self.judge))
+                )
+        else:
+            rewards = torch.Tensor(self.reward_funcs(**inputs))
 
         sorted_rewards, sorted_indices = torch.sort(rewards, descending=True)
         i = math.ceil(len(rewards)*self.args.min_sft_part)
@@ -59,7 +76,11 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         self.stats["reward"].append(rewards.mean().item())
         self.stats["batch_size"].append(len(rewards))
 
-        return {k: [v[i] for i in selected_indices] for k, v in inputs.items()}
+        if isinstance(self.judge, list):
+            for i, reward_func in enumerate(self.judge):
+                self.stats[f"rewards/{reward_func.__name__}"].append(reward_per_func[i].mean().item())
+
+        return {k: [v[i] for i in selected_indices] for k, v in original_inputs.items()}
     
     # copied from OnlineDPOTrainer (except for the collator)
     @wraps(Trainer.get_train_dataloader)

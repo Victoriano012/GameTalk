@@ -12,11 +12,12 @@ from metrics import wordBasedLoss
 # "internal_state_loss" is still to be tracked
 
 class BaseCustomEvalTrainer:
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, eval_funcs = {}, **kwargs):
         assert Trainer in self.__class__.mro(), "BaseCustomEvalTrainer is meant to be inherited with a subclass of trl.Trainer\nThat is: class YourTrainer(BaseCustomEvalTrainer, BaseTrainer): pass, where BaseTrainer is a subclass of Trainer, like GRPOTrainer"
         super().__init__(*args, **kwargs)
 
         self.root_gens_iteration = self.args.eval_samples
+        self.eval_funcs = eval_funcs
         self.num_oom = 1
 
     def evaluation_loop(self, dataloader, description, prediction_loss_only = None, ignore_keys = None, metric_key_prefix = "eval"):
@@ -30,8 +31,9 @@ class BaseCustomEvalTrainer:
         print("\n\nEvaluation starts", flush=True)
         metrics = defaultdict(float)
         try:
+            dataset.restart_eval_batch()
             for i in range(num_iterations):
-                _, full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = self.root_gens_iteration)
+                full_conversations, train_llm_num = dataset.create_eval_batch(num_root_generations = self.root_gens_iteration)
                 conversations_text = [c.full_conversation for c in full_conversations]
                 games = [c.game for c in full_conversations]
 
@@ -45,7 +47,9 @@ class BaseCustomEvalTrainer:
                 for k, v in game_metrics.items():
                     metrics[k] += v
 
-                metrics["word_based_loss"] += sum(wordBasedLoss(c, train_llm_num) for c in full_conversations)
+                print("Start custom evaluation", flush=True)
+                for metric_name, func in self.eval_funcs.items():
+                    metrics[metric_name] += sum(func(full_conversations, train_llm_num))
 
             num_samples = self.root_gens_iteration*num_iterations
             for k in metrics:

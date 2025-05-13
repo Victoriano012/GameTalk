@@ -51,6 +51,8 @@ class CustomDPOConfig(OnlineDPOConfig):
 
     dpo_variant: str = "all_pairs"
 
+    reward_weights: list = None
+
 
 class CustomDPOTrainer(OnlineDPOTrainer):
     def __init__(self, *args, **kwargs):
@@ -68,11 +70,16 @@ class CustomDPOTrainer(OnlineDPOTrainer):
             "objective/rlhf_reward": [],
             "beta": [],
         }
+        if isinstance(self.judge, list):
+            if self.args.reward_weights is None: self.args.reward_weights = [1.] * len(self.judge)
+            assert len(self.judge) == self.args.reward_weights, "Number of reward_funcs, and reward_weights should be the same"
+
+            for reward_func in self.judge:
+                self.stats[f"rewards/{reward_func.__name__}"] = []
 
     def training_step(self, model, inputs, num_items_in_batch = None):
         model.train()
 
-        original_inputs = inputs.copy()
         prompts = inputs["prompt"]
         batch_size = len(prompts)
 
@@ -98,14 +105,21 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         inputs["prompts"] = inputs.pop("prompt")
         inputs = { k : self.args.num_generations * v for k, v in inputs.items() }
         inputs["completions"] = completions
-        rewards = torch.Tensor(self.judge(**inputs)).to(device)
+        if not isinstance(self.judge, list):
+            rewards = torch.Tensor(self.judge(**inputs)).to(device)
+        else:
+            reward_per_func = [torch.Tensor(func[i](**inputs)) for func in self.judge]
+            rewards = sum(
+                    self.args.reward_weights[i] * reward_per_func[i]
+                    for i in range(len(self.judge))
+                )
 
         ref_logprobs = (ref_logprobs*completion_mask.bool()).sum(1)
         logprobs = (logprobs*completion_mask.bool()).sum(1)
-        dpo_weights = torch.exp(self.beta * (ref_logprobs - logprobs))
+        dpo_weights = torch.exp(self.beta * (logprobs - ref_logprobs))
         
-        dpo_weights = dpo_weights.view(batch_size, self.args.num_generations)
-        rewards_view = rewards.view(batch_size, self.args.num_generations)
+        dpo_weights = dpo_weights.view(self.args.num_generations, batch_size).t()
+        rewards_view = rewards.view(self.args.num_generations, batch_size).t()
 
         print(f"Computing group losses, bs={batch_size}")
         losses = []
@@ -118,10 +132,6 @@ class CustomDPOTrainer(OnlineDPOTrainer):
                 unique_rewards, _ = torch.sort(torch.unique(group_rewards), descending=True)
             
             dpo_weight_groupped_by_reward = [group_weights[group_rewards == r] for r in unique_rewards]
-            
-            if len(unique_rewards) == 1:
-                print("Only one unique reward, skipping this group")
-                continue
             
             if self.args.dpo_variant == 'all_pairs':
                 pair_log_probs = []
@@ -153,6 +163,10 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         )
         self.stats["objective/reward"].append(self.accelerator.gather_for_metrics(rewards.mean()).mean().item())
         self.stats["val/contain_eos_token"].append(contain_eos_token.float().mean().item())
+
+        if isinstance(self.judge, list):
+            for i, reward_func in enumerate(self.judge):
+                self.stats[f"rewards/{reward_func.__name__}"].append(reward_per_func[i].mean().item())
 
         kl = logprobs - ref_logprobs
         mean_kl = kl.mean()

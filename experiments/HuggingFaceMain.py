@@ -1,4 +1,3 @@
-from trl import GRPOTrainer
 from transformers import EarlyStoppingCallback
 
 from functools import partial, update_wrapper
@@ -16,6 +15,7 @@ from CustomGRPOTrainer import CustomGRPOTrainer, CustomGRPOConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
 from llm_utils import LLM
+from metrics import get_eval_metrics, leverageOpportunity_reward
 from utils import get_wandb_id
 
 
@@ -57,9 +57,18 @@ def __main__(config):
     callbacks = [dataset_callback, metrics_logger, earlyStop]
 
     ### Reward function ###
-    reward_mod = partial(game_reward, train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
-    update_wrapper(reward_mod, game_reward)
+    reward_funcs = [game_reward]
+    reward_weights = [1.]
+
+    if config.train.leverageOpportunity_weight:
+        reward_funcs.append(leverageOpportunity_reward)
+        reward_weights.append(config.train.leverageOpportunity_weight)
     
+    for i in range(len(reward_funcs)):
+        reward_mod = partial(reward_funcs[i], train_llm=train_llm, opponent_llm=opponent_llm, conversation_file=conversation_file, config=config)
+        update_wrapper(reward_mod, reward_funcs[i])
+        reward_funcs[i] = reward_mod
+
     ### Trainer + Config ###
     Config = {
         "grpo" : CustomGRPOConfig,
@@ -78,6 +87,8 @@ def __main__(config):
     training_args = Config(
         **training_args,
 
+        reward_weights=reward_weights,
+
         output_dir=config.logs.folder + config.run_name,
         run_name=config.run_name
     )
@@ -85,11 +96,13 @@ def __main__(config):
     trainer = Trainer(
         model=train_llm.model,
         processing_class=train_llm.tokenizer,
-        reward_funcs=reward_mod,
+        reward_funcs=reward_funcs,
         args=training_args,
         train_dataset=dataset,
         eval_dataset=dataset,
         callbacks=callbacks,
+
+        eval_funcs=get_eval_metrics(train_llm, opponent_llm)
     )
 
     ### train ###
