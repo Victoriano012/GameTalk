@@ -147,7 +147,7 @@ def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_ll
 
     if lastTurn: return [
         kl_div(conv_est[-1], conv_strategy[-1]) if len(conv_strategy) > 0 else 0.0
-        for conv_est, conv_strategy, c in zip(p1_estimation, p2_strategy)
+        for conv_est, conv_strategy in zip(p1_estimation, p2_strategy)
     ]
     else: return [
         float(np.mean([
