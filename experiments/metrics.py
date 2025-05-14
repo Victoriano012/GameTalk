@@ -71,7 +71,7 @@ def estimate_strategy(llm, queries, Game, player_num, other_name=None, return_qu
 
     strat = [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
  
-    return strat if not return_queries else strat, queries
+    return strat if not return_queries else (strat, queries)
 
 
 @simple_cache
