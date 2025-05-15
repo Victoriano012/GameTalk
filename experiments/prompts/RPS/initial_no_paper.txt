@@ -8,3 +8,4 @@ If you want to talk, enclose the reasoning process and talk within <think> </thi
 At any point you may end the conversation by playing your move. To do so, enclose the reasoning process and play within <think> </think> and <play> </play> tags, respectively, i.e., <think> reasoning process here </think> <play> rock / scissors </play>
 If {other_name} plays before you, you will be informed. AFTER THAT YOU MUST THINK AND THEN PLAY YOUR MOVE.
 YOU HAVE A MAXIMUM OF {max_interact} INTERACTIONS EACH.
+YOUR REASONING AND TALK SHOULD BE DIFFERENT.

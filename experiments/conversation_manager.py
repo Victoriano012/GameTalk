@@ -62,6 +62,7 @@ class ConversationPlayer:
         return my_kwargs, other_kwargs
 
     def other_turn(self, parsed_action, intermediate_prompt, other_kwargs):
+        curr_text = ""
         if 'talk' in parsed_action:
             curr_text += parsed_action['talk'].strip()
             if 'play' in parsed_action and self.game.show_moves():

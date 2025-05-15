@@ -147,6 +147,10 @@ class MetricsLogger(TrainerCallback):
         print("dataset conversations", file=self.conversation_file)
         for c in self.gameDataset.full_conversations:
             print(c.full_conversation, '\n', file=self.conversation_file)
+            ###### temp change ######
+            print('player-1 pov:')
+            print(c.player_1.pov, '\n', file=self.conversation_file)
+            ###### temp change ######
             print("REWARD (Player-1):", c.game.score(1), file=self.conversation_file, flush=True)
             print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.conversation_file, flush=True)
         
