@@ -7,7 +7,6 @@ def get_actual_llm_name(llm_name):
     supported_llms = {
         'llama-3B' : "meta-llama/Llama-3.2-3B-Instruct",
         'llama-8B' : "meta-llama/Llama-3.1-8B-Instruct",
-        'Qwen-4B' : "Qwen/Qwen3-4B",
     }
 
     if llm_name in supported_llms:
