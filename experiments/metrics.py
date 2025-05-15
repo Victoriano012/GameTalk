@@ -75,7 +75,7 @@ def estimate_strategy(llm, queries, Game, player_num, other_name=None, return_qu
 
     strat = [{possible_moves[idx] : vec[idx].item() for idx in range(len(vec))} for vec in probs]
  
-    return strat if not return_queries else strat, queries
+    return strat if not return_queries else (strat, queries)
 
 
 @simple_cache
@@ -151,7 +151,7 @@ def internalStateEvaluation(conversations, train_llm_num, train_llm, opponent_ll
 
     if lastTurn: return [
         kl_div(conv_est[-1], conv_strategy[-1]) if len(conv_strategy) > 0 else 0.0
-        for conv_est, conv_strategy, c in zip(p1_estimation, p2_strategy)
+        for conv_est, conv_strategy in zip(p1_estimation, p2_strategy)
     ]
     else: return [
         float(np.mean([
