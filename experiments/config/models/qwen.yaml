@@ -1,0 +1,7 @@
+# @package _global_
+
+llms:
+  train_llm_name: "Qwen-4B"
+
+lora:
+  target_modules: '.*_proj'
