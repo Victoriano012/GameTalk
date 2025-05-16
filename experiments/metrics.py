@@ -7,9 +7,10 @@ import re
 from itertools import accumulate
 from functools import partial
 
-from game_dataset import finish_conversation_from_completion
+from game_dataset import finish_conversations, finish_conversation_from_completion
 from games import RPS, BertrandCompetition, SizePrizeGame
 from utils import simple_cache
+from copy import deepcopy
 
 def get_eval_metrics(train_llm, opponent_llm):
     return {
@@ -205,8 +206,39 @@ def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm, l
         for conv_strategy, c in zip(p2_strategy, conversations)
     ]
 
+###################### Reward Functions ######################
 
-### Leverage Opportunity as a reward function
+########### Game Reward ###########
+
+@simple_cache
+def finish_conversation_from_completion(
+        completions, conversation, train_llm, opponent_llm, train_llm_num, config
+    ):
+    conversations = [deepcopy(c) for c in conversation]
+    for idx, action in enumerate(completions): conversations[idx].turn(action)
+    return finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
+
+def game_reward(
+        prompts, completions, conversation, train_llm_num, # from current batch
+        train_llm, opponent_llm, conversation_file, config # general
+    ):
+    print("\nComputing rewards", flush=True)
+    train_llm_num = train_llm_num[0]
+    if completions is not None:
+        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
+
+    rewards = [c.game.score(train_llm_num) for c in conversation]
+
+    print('train conversations', file=conversation_file)
+    for c, r in zip(conversation, rewards):
+        print("CONVERSATION:\n", c, file=conversation_file)
+        print("REWARD:", r, '\n'*3, flush=True, file=conversation_file)
+
+    print("Rewards computed", flush=True)
+    return rewards
+
+
+########### Leverage Opportunity as a reward function ###########
 
 @simple_cache
 def compute_end_strategy(conversations, llm_num, llm):
@@ -259,8 +291,8 @@ def naturalness_reward(
         naturalness_prompt += template.format(text=text, score="Yes" if random.random() > 0.5 else "No")
         score_pos.append(len(naturalness_prompt)-2)
 
-    tokenized = judge.tokenizer(naturalness_prompt, return_offsets_mapping=True).to('cuda')
-    input_ids = torch.tensor(tokenized['input_ids']).unsqueeze(0)
+    tokenized = judge.tokenizer(naturalness_prompt, return_offsets_mapping=True)
+    input_ids = torch.tensor(tokenized['input_ids']).unsqueeze(0).to('cuda')
     offsets = tokenized['offset_mapping']
 
     score_tokens = []

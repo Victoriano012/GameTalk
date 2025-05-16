@@ -13,9 +13,9 @@ from BaseCustomEvalTrainer import BaseCustomEvalTrainer
 from CustomSTaRTrainer import CustomSTaRTrainer, CustomSTaRConfig
 from CustomGRPOTrainer import CustomGRPOTrainer, CustomGRPOConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
-from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger, game_reward
+from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger
 from llm_utils import LLM
-from metrics import get_eval_metrics, leverageOpportunity_reward, naturalness_reward
+from metrics import get_eval_metrics, game_reward, leverageOpportunity_reward, naturalness_reward
 from utils import get_wandb_id
 
 
