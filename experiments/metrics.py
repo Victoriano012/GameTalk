@@ -1,4 +1,5 @@
 import numpy as np
+import random
 import torch
 import math
 import re
@@ -240,3 +241,45 @@ def leverageOpportunity_reward(
         print("leverageOpportunity_reward :", rewards[x], '\n'*3, flush=True, file=conversation_file)
 
     return rewards
+
+########### Naturalness reward ###########
+
+def naturalness_reward(
+        prompts, completions, conversation, train_llm_num, # from current batch
+        judge, naturalness_prompt, conversation_file, config # general
+):
+    global out, score_tokens, yes_no_ids
+
+    examples = ["Naturalness score: Yes\n", "Naturalness score: No\n"]
+    yes_no_ids = judge.tokenizer(examples, return_tensors="pt")["input_ids"][:, -2] # [7566, 2360]
+
+    template = '\nResponse: "{text}"\nNaturalness score: {score}\n'
+    score_pos = []
+    for text in completions:
+        naturalness_prompt += template.format(text=text, score="Yes" if random.random() > 0.5 else "No")
+        score_pos.append(len(naturalness_prompt)-2)
+
+    tokenized = judge.tokenizer(naturalness_prompt, return_offsets_mapping=True).to('cuda')
+    input_ids = torch.tensor(tokenized['input_ids']).unsqueeze(0)
+    offsets = tokenized['offset_mapping']
+
+    score_tokens = []
+    j = 0  # score_pos pointer
+    for i in range(len(offsets)):
+        if offsets[i][0] <= score_pos[j] < offsets[i][1]:
+            score_tokens.append(i-1)
+            j += 1
+            if j >= len(score_pos): break
+    
+    with torch.no_grad():
+        out = judge.model(input_ids=input_ids)
+    yes_no_logits = out.logits[:, score_tokens][:,:,yes_no_ids]
+    probs = yes_no_logits.softmax(dim=-1)
+    naturalness_reward = probs[0,:,0].tolist()
+
+    print('train conversations, naturalness_reward prompt', file=conversation_file)
+    for x in range(len(conversation)):
+        print(naturalness_prompt, '\n', file=conversation_file)
+        print("naturalness_reward :", naturalness_reward, '\n'*3, flush=True, file=conversation_file)
+    
+    return naturalness_reward

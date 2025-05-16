@@ -31,6 +31,7 @@ train:
   beta: 0.1 # kl_coef
 
   leverageOpportunity_weight : 0.
+  naturalness_weight : 0.
 
   ####### GRPOTrainer Config ##########
   epsilon : 0.2 # ppo_epsilon
@@ -91,6 +92,8 @@ prompts:
   initial_A: "initial.txt"
   initial_B: "initial.txt"
   intermediate: "other_moved.txt"
+
+  naturalness_prompt: "/home/azureuser/main/LLMGameTheory/experiments/prompts/naturalnessReward.txt"
 
 logs:
   folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/RPS/iteration_3/"
