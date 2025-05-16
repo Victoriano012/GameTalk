@@ -7,7 +7,7 @@ import re
 from itertools import accumulate
 from functools import partial
 
-from game_dataset import finish_conversations, finish_conversation_from_completion
+from game_dataset import finish_conversations
 from games import RPS, BertrandCompetition, SizePrizeGame
 from utils import simple_cache
 from copy import deepcopy
