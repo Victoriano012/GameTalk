@@ -108,7 +108,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         if not isinstance(self.judge, list):
             rewards = torch.Tensor(self.judge(**inputs)).to(device)
         else:
-            reward_per_func = [torch.Tensor(func[i](**inputs)) for func in self.judge]
+            reward_per_func = [torch.Tensor(func(**inputs)) for func in self.judge]
             rewards = sum(
                     self.args.reward_weights[i] * reward_per_func[i]
                     for i in range(len(self.judge))
