@@ -63,7 +63,7 @@ class GameDataset(Dataset):
     # generate root conversation and all sub-conversations
     def __getitem__(self, idx):
         if idx >= len(self.batch):
-            print("idx out of range, repeating sample")
+            print("idx out of range, repeating sample, idx:", idx, "len:", len(self.batch), flush=True)
             idx %= len(self.batch)
         conv = self.batch[idx]
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}

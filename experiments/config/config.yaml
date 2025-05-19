@@ -30,8 +30,9 @@ train:
   
   beta: 0.1 # kl_coef
 
-  leverageOpportunity_weight : 0.
-  naturalness_weight : 0.
+  leverageOpportunity_weight : 10.
+  naturalness_weight : 0.1
+  naturalness_threshold : 0.7
 
   ####### GRPOTrainer Config ##########
   epsilon : 0.2 # ppo_epsilon
@@ -65,7 +66,7 @@ train:
   dpo_variant : "all_pairs" # "all_pairs" / "all_perms" / "with_ties"
 
   gamma : 1 # TODO (should rewrite compute_loss, not trivial)
-
+  # The idea here was to decrease the signal of the first interactions, when it wasn't even learning to play. But it's now learning, no need
 
 dataset:
   num_root_generations : 4

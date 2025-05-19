@@ -71,7 +71,7 @@ def __main__(config):
         reward_funcs.append(naturalness_reward)
         reward_weights.append(config.train.naturalness_weight)
     
-    reward_args = {'train_llm': train_llm, 'opponent_llm': opponent_llm, 'judge': opponent_llm, 'conversation_file': conversation_file, 'naturalness_prompt': naturalness_prompt, 'config': config}
+    reward_args = {'train_llm': train_llm, 'opponent_llm': opponent_llm, 'judge': opponent_llm, 'conversation_file': conversation_file, 'naturalness_prompt': naturalness_prompt, 'threshold' : config.train.naturalness_threshold, 'config': config}
     for i in range(len(reward_funcs)):
         reward_mod = partial(reward_funcs[i], **{ name: value for name, value in reward_args.items() if name in inspect.signature(reward_funcs[i]).parameters})
         update_wrapper(reward_mod, reward_funcs[i])

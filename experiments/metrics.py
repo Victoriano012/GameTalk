@@ -278,7 +278,7 @@ def leverageOpportunity_reward(
 
 def naturalness_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
-        judge, naturalness_prompt, conversation_file, config # general
+        judge, naturalness_prompt, conversation_file, threshold, config # general
 ):
     global out, score_tokens, yes_no_ids
 
@@ -308,6 +308,9 @@ def naturalness_reward(
     yes_no_logits = out.logits[:, score_tokens][:,:,yes_no_ids]
     probs = yes_no_logits.softmax(dim=-1)
     naturalness_reward = probs[0,:,0].tolist()
+
+    if threshold is not None:
+        naturalness_reward = [1.0 if r > threshold else 0.0 for r in naturalness_reward]
 
     print('train conversations, naturalness_reward prompt', file=conversation_file)
     for x in range(len(conversation)):
