@@ -176,7 +176,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         self.stats["objective/non_score_reward"].append(
             self.accelerator.gather_for_metrics(mean_non_score_reward).mean().item()
         )
-        rlhf_reward = rewards + non_score_reward
+        rlhf_reward = rewards.to(device) + non_score_reward.to(device)
         self.stats["objective/rlhf_reward"].append(self.accelerator.gather_for_metrics(rlhf_reward).mean().item())
         mean_entropy = -logprobs.mean()
         self.stats["objective/entropy"].append(self.accelerator.gather_for_metrics(mean_entropy).mean().item())
