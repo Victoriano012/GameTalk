@@ -72,7 +72,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         }
         if isinstance(self.judge, list):
             if self.args.reward_weights is None: self.args.reward_weights = [1.] * len(self.judge)
-            assert len(self.judge) == self.args.reward_weights, "Number of reward_funcs, and reward_weights should be the same"
+            assert len(self.judge) == len(self.args.reward_weights), "Number of reward_funcs, and reward_weights should be the same"
 
             for reward_func in self.judge:
                 self.stats[f"rewards/{reward_func.__name__}"] = []
