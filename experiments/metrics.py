@@ -201,7 +201,7 @@ def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm, l
     ]
     else: return [
         float(np.mean([
-            max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values())
+            max(get_allmoves_ev(strategy, moves, c.game).values()) for strategy in conv_strategy
         ])) if len(conv_strategy) > 0 else 0.
         for conv_strategy, c in zip(p2_strategy, conversations)
     ]
