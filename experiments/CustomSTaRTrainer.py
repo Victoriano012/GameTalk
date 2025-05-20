@@ -107,7 +107,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
     
     # copied from Trainer
-    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time, learning_rate=None):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             logs = {}
 
@@ -118,12 +118,16 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
             if grad_norm is not None:
                 logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
-            logs["learning_rate"] = self._get_learning_rate()
+            if learning_rate is not None:
+                logs["learning_rate"] = learning_rate
+            else:
+                logs["learning_rate"] = self._get_learning_rate()
             
-            # Add our metrics
+            ######## Add our metrics ########
             for key, val in self.stats.items():
                 logs[key] = sum(val) / len(val)
             self.stats = {key: [] for key in self.stats}  # reset stats
+            #################################
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
