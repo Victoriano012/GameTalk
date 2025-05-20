@@ -279,17 +279,25 @@ def leverageOpportunity_reward(
 def naturalness_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
         judge, naturalness_prompt, conversation_file, threshold, config # general
-):
-    global out, score_tokens, yes_no_ids
-
+    ):
     examples = ["Naturalness score: Yes\n", "Naturalness score: No\n"]
     yes_no_ids = judge.tokenizer(examples, return_tensors="pt")["input_ids"][:, -2] # [7566, 2360]
 
     template = '\nResponse: "{text}"\nNaturalness score: {score}\n'
     score_pos = []
-    for text in completions:
-        naturalness_prompt += template.format(text=text, score="Yes" if random.random() > 0.5 else "No")
-        score_pos.append(len(naturalness_prompt)-2)
+    if completions is not None:
+        for text in completions:
+            naturalness_prompt += template.format(text=text, score="Yes" if random.random() > 0.5 else "No")
+            score_pos.append(len(naturalness_prompt)-2)
+    else:
+        actions_per_conversation = [0] * len(conversation)
+        for i, conv in enumerate(conversation):
+            for action in conv.get_player(train_llm_num).parsed_actions:
+                if 'talk' in action:
+                    naturalness_prompt += template.format(text=action['talk'], score="Yes" if random.random() > 0.5 else "No")
+                    score_pos.append(len(naturalness_prompt)-2)
+                    actions_per_conversation[i] += 1
+
 
     tokenized = judge.tokenizer(naturalness_prompt, return_offsets_mapping=True)
     input_ids = torch.tensor(tokenized['input_ids']).unsqueeze(0).to('cuda')
@@ -313,8 +321,17 @@ def naturalness_reward(
         naturalness_reward = [1.0 if r > threshold else 0.0 for r in naturalness_reward]
 
     print('train conversations, naturalness_reward prompt', file=conversation_file)
-    for x in range(len(conversation)):
-        print(naturalness_prompt, '\n', file=conversation_file)
+    print(naturalness_prompt, '\n', file=conversation_file)
+    print("naturalness_reward :", naturalness_reward, '\n'*3, flush=True, file=conversation_file)
+
+    if completions is None:
+        limit_idx = [0] + list(accumulate(actions_per_conversation))
+        naturalness_reward = [
+            sum(naturalness_reward[start:end]) / (end - start) if end != start else 0.0
+            for start, end in zip(limit_idx[:-1], limit_idx[1:])
+        ]
+
+        print('actions_per_conversation:', actions_per_conversation, file=conversation_file)
         print("naturalness_reward :", naturalness_reward, '\n'*3, flush=True, file=conversation_file)
-    
+
     return naturalness_reward
