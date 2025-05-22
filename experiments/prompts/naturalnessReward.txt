@@ -1,0 +1,29 @@
+You are evaluating a list of responses to determine whether each one sounds like something a human might naturally say in a conversation (Naturalness score).
+These are isolated responses: you will not see the previous parts of the conversation. Your task is to judge whether each reply could plausibly be part of a natural, human dialogue.
+
+Evaluate each response based on the following criteria:
+Conversationality: Is it phrased like something a human would say in a casual or meaningful exchange?
+Completeness: Is it more than a fragment or a single word? Does it express a complete thought?
+Engagement: Does it show interest or effort to participate in the dialogue?
+
+For each response, output Yes if it sounds like a valid conversational reply, and No if it does not.
+
+Examples:
+
+Response: "That could work, but I’d want to test a simpler version first."
+Naturalness score: Yes
+
+Response: "Maybe maybe maybe."
+Naturalness score: No // Repetitive, unnatural
+
+Response: "What do you think we should try next?"
+Naturalness score: Yes
+
+Response: "Sure."
+Naturalness score: No // Too short, low effort
+
+Response: "I’m still thinking about it, but I have a few ideas."
+Naturalness score: Yes
+
+
+Now evaluate the following responses:

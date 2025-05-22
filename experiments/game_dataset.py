@@ -2,12 +2,11 @@ from transformers import TrainerCallback
 from torch.utils.data import Dataset
 import torch
 
-from copy import deepcopy
 from math import floor
 import random
 
 from conversation_manager import ConversationManager
-from utils import masked_call, autoassign, simple_cache
+from utils import masked_call, autoassign
 from games import get_game
 
 @torch.no_grad()
@@ -64,7 +63,7 @@ class GameDataset(Dataset):
     # generate root conversation and all sub-conversations
     def __getitem__(self, idx):
         if idx >= len(self.batch):
-            print("idx out of range, repeating sample")
+            print("idx out of range, repeating sample, idx:", idx, "len:", len(self.batch), flush=True)
             idx %= len(self.batch)
         conv = self.batch[idx]
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
@@ -164,31 +163,3 @@ class MetricsLogger(TrainerCallback):
                 print("REWARD (Player-2):", c.game.score(2), '\n\n', file=self.eval_conversation_file, flush=True)
 
             self.gameDataset.eval_batch_shown = True
-
-
-@simple_cache
-def finish_conversation_from_completion(
-        completions, conversation, train_llm, opponent_llm, train_llm_num, config
-    ):
-    conversations = [deepcopy(c) for c in conversation]
-    for idx, action in enumerate(completions): conversations[idx].turn(action)
-    return finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
-
-def game_reward(
-        prompts, completions, conversation, train_llm_num, # from current batch
-        train_llm, opponent_llm, conversation_file, config # general
-    ):
-    print("\nComputing rewards", flush=True)
-    train_llm_num = train_llm_num[0]
-    if completions is not None:
-        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
-
-    rewards = [c.game.score(train_llm_num) for c in conversation]
-
-    print('train conversations', file=conversation_file)
-    for c, r in zip(conversation, rewards):
-        print("CONVERSATION:\n", c, file=conversation_file)
-        print("REWARD:", r, '\n'*3, flush=True, file=conversation_file)
-
-    print("Rewards computed", flush=True)
-    return rewards

@@ -1,4 +1,5 @@
 import numpy as np
+import random
 import torch
 import math
 import re
@@ -6,9 +7,10 @@ import re
 from itertools import accumulate
 from functools import partial
 
-from game_dataset import finish_conversation_from_completion
+from game_dataset import finish_conversations
 from games import RPS, BertrandCompetition, SizePrizeGame
 from utils import simple_cache
+from copy import deepcopy
 
 def get_eval_metrics(train_llm, opponent_llm):
     return {
@@ -199,17 +201,59 @@ def leverageOpportunity(conversations, train_llm_num, train_llm, opponent_llm, l
     ]
     else: return [
         float(np.mean([
-            max(get_allmoves_ev(conv_strategy[-1], moves, c.game).values())
+            max(get_allmoves_ev(strategy, moves, c.game).values()) for strategy in conv_strategy
         ])) if len(conv_strategy) > 0 else 0.
         for conv_strategy, c in zip(p2_strategy, conversations)
     ]
 
+###################### Reward Functions ######################
 
-### Leverage Opportunity as a reward function
+########### Game Reward ###########
 
 @simple_cache
-def compute_end_strategy(conversations, llm_num, llm):
-    partial_conversations = [list(c.get_subconversations(llm_num))[-1] for c in conversations]
+def finish_conversation_from_completion(
+        completions, conversation, train_llm, opponent_llm, train_llm_num, config
+    ):
+    conversations = [deepcopy(c) for c in conversation]
+    for idx, action in enumerate(completions): conversations[idx].turn(action)
+    return finish_conversations(conversations, train_llm, opponent_llm, train_llm_num, config)
+
+def game_reward(
+        prompts, completions, conversation, train_llm_num, # from current batch
+        train_llm, opponent_llm, conversation_file, config # general
+    ):
+    print("\nComputing rewards", flush=True)
+    train_llm_num = train_llm_num[0]
+    if completions is not None:
+        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
+
+    rewards = [c.game.score(train_llm_num) for c in conversation]
+
+    print('train conversations', file=conversation_file)
+    for c, r in zip(conversation, rewards):
+        print("CONVERSATION:\n", c, file=conversation_file)
+        print("REWARD:", r, '\n'*3, flush=True, file=conversation_file)
+
+    print("Rewards computed", flush=True)
+    return rewards
+
+
+########### Leverage Opportunity as a reward function ###########
+
+@simple_cache
+def compute_strategies(conversations, llm_num, llm):
+    partial_conversations = [list(c.get_subconversations(llm_num)) for c in conversations]
+
+    Game = type(conversations[0].game)
+    return [estimate_strategy(
+        llm, [c.get_query() for c in convs], Game=Game, player_num=llm_num, other_name=None, return_queries=True
+    ) for convs in partial_conversations
+    ]
+
+@simple_cache
+def compute_end_strategy(conversations, llm_num, llm, full_conversation_given=True):
+    partial_conversations = conversations if not full_conversation_given else \
+                            [list(c.get_subconversations(llm_num))[-1] for c in conversations]
 
     Game = type(conversations[0].game)
     return estimate_strategy(
@@ -221,17 +265,38 @@ def leverageOpportunity_reward(
         train_llm, opponent_llm, conversation_file, config # general
     ):
     if len(conversation) == 0 or type(conversation[0].game) == SizePrizeGame: return [0.0] * len(conversation)
-
     train_llm_num = train_llm_num[0]
-    if completions is not None:
-        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
-    p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm)
+
+    # completions is None when doing STaR, in that case conversations are already finished
+    if type(conversation[0].game) == RPS:
+        if completions is not None:
+            conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
+        p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm)
+
+    elif type(conversation[0].game) == BertrandCompetition:
+        if completions is None:
+            p2_strategies_and_queries = compute_strategies(conversation, 3-train_llm_num, opponent_llm)
+            len_reward_groups = [len(c) for c in p2_strategies_and_queries]
+            p2_strategy, queries = zip(*p2_strategies_and_queries)
+        else:
+            for idx, action in enumerate(completions): conversation[idx].turn(action)
+            p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm, full_conversation_given=False)
+
+    else:
+        raise NotImplementedError("Which game is this?")
 
     moves = conversation[0].game.get_possible_moves(train_llm_num)
     rewards = [
         max(get_allmoves_ev(conv_strategy, moves, c.game).values())
         for conv_strategy, c in zip(p2_strategy, conversation)
     ]
+
+    if type(conversation[0].game) == BertrandCompetition and completions is None:
+        limit_idx = [0] + list(accumulate(len_reward_groups))
+        rewards = [
+            sum(rewards[start:end]) / (end - start) if end != start else 0.0
+            for start, end in zip(limit_idx[:-1], limit_idx[1:])
+        ]
     
     print('train conversations (leverageOpportunity_reward)', file=conversation_file)
     for x in range(len(conversation)):
@@ -240,3 +305,65 @@ def leverageOpportunity_reward(
         print("leverageOpportunity_reward :", rewards[x], '\n'*3, flush=True, file=conversation_file)
 
     return rewards
+
+########### Naturalness reward ###########
+
+def naturalness_reward(
+        prompts, completions, conversation, train_llm_num, # from current batch
+        judge, naturalness_prompt, conversation_file, threshold, config # general
+    ):
+    examples = ["Naturalness score: Yes\n", "Naturalness score: No\n"]
+    yes_no_ids = judge.tokenizer(examples, return_tensors="pt")["input_ids"][:, -2] # [7566, 2360]
+
+    template = '\nResponse: "{text}"\nNaturalness score: {score}\n'
+    score_pos = []
+    if completions is not None:
+        for text in completions:
+            naturalness_prompt += template.format(text=text, score="Yes" if random.random() > 0.5 else "No")
+            score_pos.append(len(naturalness_prompt)-2)
+    else:
+        actions_per_conversation = [0] * len(conversation)
+        for i, conv in enumerate(conversation):
+            for action in conv.get_player(train_llm_num).parsed_actions:
+                if 'talk' in action:
+                    naturalness_prompt += template.format(text=action['talk'], score="Yes" if random.random() > 0.5 else "No")
+                    score_pos.append(len(naturalness_prompt)-2)
+                    actions_per_conversation[i] += 1
+
+
+    tokenized = judge.tokenizer(naturalness_prompt, return_offsets_mapping=True)
+    input_ids = torch.tensor(tokenized['input_ids']).unsqueeze(0).to('cuda')
+    offsets = tokenized['offset_mapping']
+
+    score_tokens = []
+    j = 0  # score_pos pointer
+    for i in range(len(offsets)):
+        if offsets[i][0] <= score_pos[j] < offsets[i][1]:
+            score_tokens.append(i-1)
+            j += 1
+            if j >= len(score_pos): break
+    
+    with torch.no_grad():
+        out = judge.model(input_ids=input_ids)
+    yes_no_logits = out.logits[:, score_tokens][:,:,yes_no_ids]
+    probs = yes_no_logits.softmax(dim=-1)
+    naturalness_reward = probs[0,:,0].tolist()
+
+    if threshold is not None:
+        naturalness_reward = [1.0 if r > threshold else 0.0 for r in naturalness_reward]
+
+    print('train conversations, naturalness_reward prompt', file=conversation_file)
+    print(naturalness_prompt, '\n', file=conversation_file)
+    print("naturalness_reward :", naturalness_reward, '\n'*3, flush=True, file=conversation_file)
+
+    if completions is None:
+        limit_idx = [0] + list(accumulate(actions_per_conversation))
+        naturalness_reward = [
+            sum(naturalness_reward[start:end]) / (end - start) if end != start else 0.0
+            for start, end in zip(limit_idx[:-1], limit_idx[1:])
+        ]
+
+        print('actions_per_conversation:', actions_per_conversation, file=conversation_file)
+        print("naturalness_reward :", naturalness_reward, '\n'*3, flush=True, file=conversation_file)
+
+    return naturalness_reward

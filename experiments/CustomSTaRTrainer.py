@@ -33,7 +33,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         self.reward_funcs = reward_funcs
         if isinstance(reward_funcs, list):
             if self.args.reward_weights is None: self.reward_weights = [1.] * len(reward_funcs)
-            assert len(reward_funcs) == self.args.reward_weights, "Number of reward_funcs, and reward_weights should be the same"
+            assert len(reward_funcs) == len(self.args.reward_weights), "Number of reward_funcs, and reward_weights should be the same"
 
             for i in range(len(reward_funcs)):
                 self.stats[f"rewards/{reward_funcs[i].__name__}"] = []
@@ -59,7 +59,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         original_inputs = inputs.copy()
         inputs['completions'] = inputs['prompts'] = None
         if isinstance(self.reward_funcs, list):
-            reward_per_func = [torch.Tensor(func[i](**inputs)) for func in self.reward_funcs]
+            reward_per_func = [torch.Tensor(func(**inputs)) for func in self.reward_funcs]
             rewards = sum(
                     self.args.reward_weights[i] * reward_per_func[i]
                     for i in range(len(self.judge))
@@ -107,7 +107,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
     
     # copied from Trainer
-    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time, learning_rate=None):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             logs = {}
 
@@ -118,12 +118,16 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
             if grad_norm is not None:
                 logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
-            logs["learning_rate"] = self._get_learning_rate()
+            if learning_rate is not None:
+                logs["learning_rate"] = learning_rate
+            else:
+                logs["learning_rate"] = self._get_learning_rate()
             
-            # Add our metrics
+            ######## Add our metrics ########
             for key, val in self.stats.items():
                 logs[key] = sum(val) / len(val)
             self.stats = {key: [] for key in self.stats}  # reset stats
+            #################################
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step

@@ -12,8 +12,8 @@ from trl.data_utils import is_conversational, maybe_apply_chat_template
 
 
 def plackett_luce_logprob(v):
-    if isinstance(v, list):
-        v = torch.stack(v)
+    if not isinstance(v, torch.Tensor):
+        v = torch.as_tensor(v, dtype=torch.float32, device='cuda')
     logprob = torch.tensor(0.0, dtype=v.dtype, device=v.device)
     for k in range(len(v)):
         denominator = torch.sum(v[k:])
@@ -30,15 +30,13 @@ def tied_plackett_luce_logprob(sets):
     logprob = torch.tensor(0.0, dtype=sets[0].dtype, device=sets[0].device)
 
     for tie_group in sets:
-        if (tie_group <= 0.).any():
-            print(tie_group)
         logprob += torch.log(tie_group).mean()
 
     for set in itertools.accumulate(sets[::-1], lambda acc, x: torch.cat([acc,x])):
+        denominator = torch.tensor(0.0)
         for subset in all_subsets(set):
-            if (subset <= 0.).any():
-                print(subset)
-            logprob -= torch.log(subset).mean()
+            denominator += subset.log().mean().exp() # geometric average
+        logprob -= torch.log(denominator)
 
     return logprob
 
@@ -72,7 +70,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         }
         if isinstance(self.judge, list):
             if self.args.reward_weights is None: self.args.reward_weights = [1.] * len(self.judge)
-            assert len(self.judge) == self.args.reward_weights, "Number of reward_funcs, and reward_weights should be the same"
+            assert len(self.judge) == len(self.args.reward_weights), "Number of reward_funcs, and reward_weights should be the same"
 
             for reward_func in self.judge:
                 self.stats[f"rewards/{reward_func.__name__}"] = []
@@ -108,7 +106,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         if not isinstance(self.judge, list):
             rewards = torch.Tensor(self.judge(**inputs)).to(device)
         else:
-            reward_per_func = [torch.Tensor(func[i](**inputs)) for func in self.judge]
+            reward_per_func = [torch.Tensor(func(**inputs)) for func in self.judge]
             rewards = sum(
                     self.args.reward_weights[i] * reward_per_func[i]
                     for i in range(len(self.judge))
@@ -144,7 +142,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
 
             elif self.args.dpo_variant == 'all_perms':
                 perm_log_probs = []
-                for combination in itertools.product(*dpo_weight_groupped_by_reward):
+                for combination in torch.cartesian_prod(*dpo_weight_groupped_by_reward):
                     perm_log_probs.append(plackett_luce_logprob(combination))
                 curr_loss = - torch.stack(perm_log_probs).mean()
             
@@ -176,7 +174,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
         self.stats["objective/non_score_reward"].append(
             self.accelerator.gather_for_metrics(mean_non_score_reward).mean().item()
         )
-        rlhf_reward = rewards + non_score_reward
+        rlhf_reward = rewards.to(device) + non_score_reward.to(device)
         self.stats["objective/rlhf_reward"].append(self.accelerator.gather_for_metrics(rlhf_reward).mean().item())
         mean_entropy = -logprobs.mean()
         self.stats["objective/entropy"].append(self.accelerator.gather_for_metrics(mean_entropy).mean().item())
