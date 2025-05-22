@@ -241,8 +241,19 @@ def game_reward(
 ########### Leverage Opportunity as a reward function ###########
 
 @simple_cache
-def compute_end_strategy(conversations, llm_num, llm):
-    partial_conversations = [list(c.get_subconversations(llm_num))[-1] for c in conversations]
+def compute_strategies(conversations, llm_num, llm):
+    partial_conversations = [list(c.get_subconversations(llm_num)) for c in conversations]
+
+    Game = type(conversations[0].game)
+    return [estimate_strategy(
+        llm, [c.get_query() for c in convs], Game=Game, player_num=llm_num, other_name=None, return_queries=True
+    ) for convs in partial_conversations
+    ]
+
+@simple_cache
+def compute_end_strategy(conversations, llm_num, llm, full_conversation_given=True):
+    partial_conversations = conversations if not full_conversation_given else \
+                            [list(c.get_subconversations(llm_num))[-1] for c in conversations]
 
     Game = type(conversations[0].game)
     return estimate_strategy(
@@ -254,17 +265,38 @@ def leverageOpportunity_reward(
         train_llm, opponent_llm, conversation_file, config # general
     ):
     if len(conversation) == 0 or type(conversation[0].game) == SizePrizeGame: return [0.0] * len(conversation)
-
     train_llm_num = train_llm_num[0]
-    if completions is not None:
-        conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
-    p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm)
+
+    # completions is None when doing STaR, in that case conversations are already finished
+    if type(conversation[0].game) == RPS:
+        if completions is not None:
+            conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
+        p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm)
+
+    elif type(conversation[0].game) == BertrandCompetition:
+        if completions is None:
+            p2_strategies_and_queries = compute_strategies(conversation, 3-train_llm_num, opponent_llm)
+            len_reward_groups = [len(c) for c in p2_strategies_and_queries]
+            p2_strategy, queries = zip(*p2_strategies_and_queries)
+        else:
+            for idx, action in enumerate(completions): conversation[idx].turn(action)
+            p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm, full_conversation_given=False)
+
+    else:
+        raise NotImplementedError("Which game is this?")
 
     moves = conversation[0].game.get_possible_moves(train_llm_num)
     rewards = [
         max(get_allmoves_ev(conv_strategy, moves, c.game).values())
         for conv_strategy, c in zip(p2_strategy, conversation)
     ]
+
+    if type(conversation[0].game) == BertrandCompetition and completions is None:
+        limit_idx = [0] + list(accumulate(len_reward_groups))
+        rewards = [
+            sum(rewards[start:end]) / (end - start) if end != start else 0.0
+            for start, end in zip(limit_idx[:-1], limit_idx[1:])
+        ]
     
     print('train conversations (leverageOpportunity_reward)', file=conversation_file)
     for x in range(len(conversation)):
