@@ -35,10 +35,10 @@ def tied_plackett_luce_logprob(sets):
         logprob += torch.log(tie_group).mean()
 
     for set in itertools.accumulate(sets[::-1], lambda acc, x: torch.cat([acc,x])):
+        denominator = torch.tensor(0.0)
         for subset in all_subsets(set):
-            if (subset <= 0.).any():
-                print(subset)
-            logprob -= torch.log(subset).mean()
+            denominator += subset.log().mean().exp() # geometric average
+        logprob -= torch.log(denominator)
 
     return logprob
 
