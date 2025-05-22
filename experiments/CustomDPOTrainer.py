@@ -12,8 +12,8 @@ from trl.data_utils import is_conversational, maybe_apply_chat_template
 
 
 def plackett_luce_logprob(v):
-    if isinstance(v, list):
-        v = torch.stack(v)
+    if not isinstance(v, torch.Tensor):
+        v = torch.as_tensor(v, dtype=torch.float32, device='cuda')
     logprob = torch.tensor(0.0, dtype=v.dtype, device=v.device)
     for k in range(len(v)):
         denominator = torch.sum(v[k:])
@@ -144,7 +144,7 @@ class CustomDPOTrainer(OnlineDPOTrainer):
 
             elif self.args.dpo_variant == 'all_perms':
                 perm_log_probs = []
-                for combination in itertools.product(*dpo_weight_groupped_by_reward):
+                for combination in torch.cartesian_prod(*dpo_weight_groupped_by_reward):
                     perm_log_probs.append(plackett_luce_logprob(combination))
                 curr_loss = - torch.stack(perm_log_probs).mean()
             
