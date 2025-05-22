@@ -30,8 +30,6 @@ def tied_plackett_luce_logprob(sets):
     logprob = torch.tensor(0.0, dtype=sets[0].dtype, device=sets[0].device)
 
     for tie_group in sets:
-        if (tie_group <= 0.).any():
-            print(tie_group)
         logprob += torch.log(tie_group).mean()
 
     for set in itertools.accumulate(sets[::-1], lambda acc, x: torch.cat([acc,x])):
