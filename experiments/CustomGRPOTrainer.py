@@ -43,14 +43,14 @@ class CustomGRPOTrainer(GRPOTrainer):
 
         # Log the metrics
         completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
-        self._metrics["completion_length"].append(completion_length)
+        self._metrics["train"]["completion_length"].append(completion_length)
 
         mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-        self._metrics["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
+        self._metrics["train"]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
 
         if self.args.entropy_beta > 0:
             mean_entropy = ((entropy * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-            self._metrics["entropy"].append(self.accelerator.gather_for_metrics(mean_entropy).mean().item())
+            self._metrics["train"]["entropy"].append(self.accelerator.gather_for_metrics(mean_entropy).mean().item())
 
         return loss
 
