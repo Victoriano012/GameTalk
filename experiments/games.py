@@ -111,19 +111,17 @@ class RPS():
 
 
 def price_to_int(s):
+    if s is None or s == "error": return None
+    
     s = s.strip().lower()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    if s[0] != '$':
-        return None
-    try:
-        return int(s[1:])
-    except ValueError:
-        return None
+    if not s: return None
+
+    try: return int(s)
+    except ValueError: pass
+
+    if s[0] != '$': return None
+    try: return int(s[1:])
+    except ValueError: return None
 
 class BertrandCompetition():
     NAME = "bertrand-competition"
@@ -152,20 +150,16 @@ class BertrandCompetition():
         
         curr_player = self.player_1 if player_id == self.player_1.id else self.player_2
 
-        if move is None or move == "error":
-            curr_player.moves.append("error")
-            return None, None
+        price = price_to_int(move)
+        curr_player.moves.append(price if price is not None else "error")
+
+        if price is None or player_id == self.player_1.id: return None, None
         else:
-            price = price_to_int(move)
-            curr_player.moves.append(price if price is not None else "error")
-            if price is None or player_id == self.player_1.id:
-                return None, None
-            else:
-                price_1 = self.player_1.moves[-1]
-                price_2 = self.player_2.moves[-1]
-                my_kwargs = {'my_price' : price_1, 'other_price' : price_2, 'my_benefit' : self._benefit(price_1, price_2)}
-                other_kwargs = {'my_price' : price_2, 'other_price' : price_1, 'my_benefit' : self._benefit(price_2, price_1)}
-                return my_kwargs, other_kwargs
+            price_1 = self.player_1.moves[-1]
+            price_2 = self.player_2.moves[-1]
+            other_kwargs = {'my_price' : price_1, 'other_price' : price_2, 'my_benefit' : self._benefit(price_1, price_2)}
+            my_kwargs = {'my_price' : price_2, 'other_price' : price_1, 'my_benefit' : self._benefit(price_2, price_1)}
+            return my_kwargs, other_kwargs
     
     def score(self, player_id):
         if isinstance(player_id, int):
@@ -192,13 +186,12 @@ class BertrandCompetition():
         return {"normalized_earnings" : sum(normalized_earnings) / len(games)}
         
     def is_finished(self):
+        return self.is_error()
+    
+    def is_error(self):
         p1_error = len(self.player_1.moves) > 0 and self.player_1.moves[-1] == 'error'
         p2_error = len(self.player_2.moves) > 0 and self.player_2.moves[-1] == 'error'
         return p1_error or p2_error
-    
-    def is_error(self):
-        moves1, moves2 = self.player_1.moves, self.player_2.moves
-        return (len(moves1) != 0 and moves1[-1] == "error") or (len(moves2) != 0 and moves2[-1] == "error")
 
 
     def _len(self):
