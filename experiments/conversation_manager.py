@@ -140,7 +140,7 @@ class ConversationManager:
     def get_subconversations(self, player_num):
         conv = ConversationManager(self.initial_prompt_1, self.initial_prompt_2, self.intermediate_prompt, self.name_1, self.name_2, type(self.game), **self.initial_kwargs)
         for idx, action in enumerate(self.all_actions):
-            if conv.finished(): break
+            if conv.finished(): break # can be erased, ?
             if (idx+1) % 2 == player_num % 2: yield deepcopy(conv)
             conv.turn(action)
 

@@ -222,7 +222,7 @@ def game_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
         train_llm, opponent_llm, conversation_file, config # general
     ):
-    print("\nComputing rewards", flush=True)
+    print("\nComputing game rewards", flush=True)
     train_llm_num = train_llm_num[0]
     if completions is not None:
         conversation = finish_conversation_from_completion(completions, conversation, train_llm, opponent_llm, train_llm_num, config)
@@ -279,6 +279,7 @@ def leverageOpportunity_reward(
             len_reward_groups = [len(c) for c in p2_strategies_and_queries]
             p2_strategy, queries = zip(*p2_strategies_and_queries)
         else:
+            conversation = [deepcopy(c) for c in conversation]
             for idx, action in enumerate(completions): conversation[idx].turn(action)
             p2_strategy, queries = compute_end_strategy(conversation, 3-train_llm_num, opponent_llm, full_conversation_given=False)
 
