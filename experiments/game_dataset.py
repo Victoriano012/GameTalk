@@ -69,7 +69,7 @@ class GameDataset(Dataset):
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
 
     def update_batch(self):
-        self.full_conversations, self.train_llm_num = self._create_batch(different_data=self.config.method != "star")
+        self.full_conversations, self.train_llm_num = self._create_batch(different_data=self.config.train.method != "star")
         self.batch = self.full_conversations if not self.keep_partial_conversations else \
             sum([list(c.get_subconversations(self.train_llm_num)) for c in self.full_conversations], [])
         random.shuffle(self.batch)
