@@ -69,7 +69,7 @@ class GameDataset(Dataset):
         return {"prompt": conv.get_query(), "conversation": conv, "train_llm_num" : self.train_llm_num}
 
     def update_batch(self):
-        self.full_conversations, self.train_llm_num = self._create_batch()
+        self.full_conversations, self.train_llm_num = self._create_batch(different_data=self.config.method != "star")
         self.batch = self.full_conversations if not self.keep_partial_conversations else \
             sum([list(c.get_subconversations(self.train_llm_num)) for c in self.full_conversations], [])
         random.shuffle(self.batch)
@@ -79,11 +79,11 @@ class GameDataset(Dataset):
         self.eval_batch_shown = False
 
     def create_eval_batch(self, num_root_generations=None):
-        new_eval_batch, eval_llm_num = self._create_batch(num_root_generations=num_root_generations)
+        new_eval_batch, eval_llm_num = self._create_batch(num_root_generations=num_root_generations, different_data=True)
         self.eval_batch += new_eval_batch
         return new_eval_batch, eval_llm_num
 
-    def _create_batch(self, num_root_generations=None):
+    def _create_batch(self, num_root_generations=None, different_data=True):
         print("\nCreating batch", flush=True)
 
         if num_root_generations is None:
@@ -91,7 +91,9 @@ class GameDataset(Dataset):
         
         if self.data:
             length = len(next(iter(self.data.values())))
-            if num_root_generations <= length:
+            if not different_data:
+                indices = random.sample(range(length), k=1) * num_root_generations
+            elif num_root_generations <= length:
                 indices = random.sample(range(length), k=num_root_generations)
             else:
                 indices = random.choices(range(length), k=num_root_generations)
