@@ -66,7 +66,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
             reward_per_func = [torch.Tensor(func(**inputs)) for func in self.reward_funcs]
             rewards = sum(
                     self.args.reward_weights[i] * reward_per_func[i]
-                    for i in range(len(self.judge))
+                    for i in range(len(self.reward_funcs))
                 )
         else:
             rewards = torch.Tensor(self.reward_funcs(**inputs))
@@ -80,8 +80,8 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         self.stats["reward"].append(rewards.mean().item())
         self.stats["batch_size"].append(len(rewards))
 
-        if isinstance(self.judge, list):
-            for i, reward_func in enumerate(self.judge):
+        if isinstance(self.reward_funcs, list):
+            for i, reward_func in enumerate(self.reward_funcs):
                 self.stats[f"rewards/{reward_func.__name__}"].append(reward_per_func[i].mean().item())
 
         return {k: [v[i] for i in selected_indices] for k, v in original_inputs.items()}
