@@ -323,6 +323,7 @@ def naturalness_reward(
             naturalness_prompt += template.format(text=text, score="Yes" if random.random() > 0.5 else "No")
             score_pos.append(len(naturalness_prompt)-2)
     else:
+        train_llm_num = train_llm_num[0]
         actions_per_conversation = [0] * len(conversation)
         for i, conv in enumerate(conversation):
             for action in conv.get_player(train_llm_num).parsed_actions:

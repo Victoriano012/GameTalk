@@ -60,6 +60,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
     
     def _filter(self, inputs):
         original_inputs = inputs.copy()
+        inputs.pop('prompt')
         inputs['completions'] = inputs['prompts'] = None
         if isinstance(self.reward_funcs, list):
             reward_per_func = [torch.Tensor(func(**inputs)) for func in self.reward_funcs]
