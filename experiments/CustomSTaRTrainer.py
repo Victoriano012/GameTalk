@@ -110,7 +110,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
     
-    # copied from Trainer
+    # copied from Trainer (erase line 376 of iterative_sft_trainer.py, calling _maybe_log_save_evaluate)
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time, learning_rate=None):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             logs = {}
