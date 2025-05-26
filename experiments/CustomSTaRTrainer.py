@@ -5,7 +5,7 @@ import torch
 import math
 
 from transformers.trainer_utils import seed_worker, SaveStrategy
-from transformers import Trainer, TrainingArguments
+from transformers import trainer, Trainer, TrainingArguments
 from torch.utils.data import DataLoader
 from functools import wraps
 
@@ -19,8 +19,10 @@ class CustomSTaRConfig(TrainingArguments):
     reward_weights: list = None
 
 class CustomSTaRTrainer(IterativeSFTTrainer):
-    def __init__(self, reward_funcs=None, processing_class=None, **kwargs):
+    def __init__(self, reward_funcs=None, processing_class=None, train_dataset=None, callbacks = None, **kwargs):
         self.data_collator_2 = DPODataCollatorWithPadding(pad_token_id=processing_class.pad_token_id)
+        trainer.DEFAULT_CALLBACKS += callbacks
+
         super().__init__(processing_class=processing_class, **kwargs)
 
         self.stats = {
@@ -29,6 +31,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
             "batch_size": [],
         }
         
+        self.train_dataset = train_dataset
         
         self.reward_funcs = reward_funcs
         if isinstance(reward_funcs, list):
