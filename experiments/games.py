@@ -168,7 +168,7 @@ class BertrandCompetition():
             raise ValueError("Invalid player ID")
         
         moves1, moves2 = (self.player_1.moves, self.player_2.moves) if player_id == self.player_1.id else (self.player_2.moves, self.player_1.moves)
-        moves1, moves2 = copy(moves1), copy(moves1)
+        moves1, moves2 = copy(moves1), copy(moves2)
 
         if len(moves1) != 0 and moves1[-1] == "error": moves1 = moves1[:-1]
         if len(moves2) != 0 and moves2[-1] == "error": moves2 = moves2[:-1]
