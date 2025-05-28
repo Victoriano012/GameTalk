@@ -278,6 +278,8 @@ def leverageOpportunity_reward(
             p2_strategies_and_queries = compute_strategies(conversation, 3-train_llm_num, opponent_llm)
             len_reward_groups = [len(c) for c in p2_strategies_and_queries]
             p2_strategy, queries = zip(*p2_strategies_and_queries)
+            p2_strategy = [s for sublist in p2_strategy for s in sublist]
+            queries = [q for sublist in queries for q in sublist]
         else:
             conversation = [deepcopy(c) for c in conversation]
             for idx, action in enumerate(completions): conversation[idx].turn(action)
@@ -340,10 +342,10 @@ def naturalness_reward(
     score_tokens = []
     j = 0  # score_pos pointer
     for i in range(len(offsets)):
+        if j >= len(score_pos): break
         if offsets[i][0] <= score_pos[j] < offsets[i][1]:
             score_tokens.append(i-1)
             j += 1
-            if j >= len(score_pos): break
     
     with torch.no_grad():
         out = judge.model(input_ids=input_ids)

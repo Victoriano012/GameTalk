@@ -32,6 +32,8 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
         }
         
         self.train_dataset = train_dataset
+        self.tr_loss = torch.tensor(0.0).to(self.args.device)
+        self._globalstep_last_logged = self.state.global_step
         
         self.reward_funcs = reward_funcs
         if isinstance(reward_funcs, list):
