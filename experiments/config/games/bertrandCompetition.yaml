@@ -6,11 +6,11 @@ train:
 
 dataset:
   game_name: "bertrand-competition"
-  data : "/home/azureuser/main/LLMGameTheory/experiments/data/BertrandCompetition.pkl"
+  data : "/home/vc111/main/LLMGameTheory/experiments/data/BertrandCompetition.pkl"
 
 prompts:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/prompts/BertrandCompetition/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/prompts/BertrandCompetition/"
   intermediate: "turn.txt"
 
 logs:
-  folder: "/home/azureuser/main/LLMGameTheory/experiments/logs/BertrandCompetition/"
+  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/BertrandCompetition/"
