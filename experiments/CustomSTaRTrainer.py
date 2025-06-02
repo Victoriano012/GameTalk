@@ -1,4 +1,4 @@
-from trl import IterativeSFTTrainer
+from trl import IterativeSFTTrainer, IterativeSFTConfig
 from trl.trainer.utils import DPODataCollatorWithPadding
 from dataclasses import dataclass
 import torch
@@ -11,7 +11,7 @@ from functools import wraps
 
 
 @dataclass
-class CustomSTaRConfig(TrainingArguments):
+class CustomSTaRConfig(IterativeSFTConfig):
     eval_samples: int = 32
     min_sft_part: float = 0.1
     star_batch_size: int = 1
@@ -112,7 +112,7 @@ class CustomSTaRTrainer(IterativeSFTTrainer):
 
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
     
-    # copied from Trainer (erase line 376 of iterative_sft_trainer.py, calling _maybe_log_save_evaluate)
+    # copied from Trainer (erase line 376 -430 actually- of iterative_sft_trainer.py, calling _maybe_log_save_evaluate)
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time, learning_rate=None):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             logs = {}

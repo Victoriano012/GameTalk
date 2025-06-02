@@ -8,16 +8,17 @@ from transformers.training_args import OptimizerNames
 from trl.trainer.utils import truncate_right, empty_cache
 from trl.models.utils import unwrap_model_for_generation
 from trl.data_utils import is_conversational, maybe_apply_chat_template
+from peft import PeftModel
 
 
 
 def plackett_luce_logprob(v):
     if not isinstance(v, torch.Tensor):
-        v = torch.as_tensor(v, dtype=torch.float32, device='cuda')
-    logprob = torch.tensor(0.0, dtype=v.dtype, device=v.device)
+        v = torch.stack(v)
+    logprob = 0.0
     for k in range(len(v)):
-        denominator = torch.sum(v[k:])
-        logprob += torch.log(v[k]) - torch.log(denominator)
+        denominator = v[k:].sum()
+        logprob += v[k].log() - denominator.log()
     return logprob
 
 
@@ -51,11 +52,19 @@ class CustomDPOConfig(OnlineDPOConfig):
 
     reward_weights: list = None
 
+    full_gradient_accumulation: bool = False
+
 
 class CustomDPOTrainer(OnlineDPOTrainer):
     def __init__(self, *args, **kwargs):
         kwargs['judge'] = kwargs.pop('reward_funcs')
         super().__init__(*args, **kwargs)
+
+        if isinstance(self.model, PeftModel):
+            print('PeftModel detected')
+            self.ref_model = None
+        else:
+            print('PeftModel not detected')
 
         self.is_encoder_decoder = kwargs['model'].config.is_encoder_decoder # idk why this is needed
         self.stats = {
@@ -88,16 +97,8 @@ class CustomDPOTrainer(OnlineDPOTrainer):
 
         contain_eos_token = torch.any(completion_ids == self.processing_class.eos_token_id, dim=-1)
 
-        logprobs = self._forward(model, prompt_ids, prompt_mask, completion_ids, completion_mask)
-        with torch.no_grad():
-            if self.ref_model is not None:
-                ref_logprobs = self._forward(self.ref_model, prompt_ids, prompt_mask, completion_ids, completion_mask)
-            else:  # peft case: we just need to disable the adapter
-                with self.model.disable_adapter():
-                    ref_logprobs = self._forward(self.model, prompt_ids, prompt_mask, completion_ids, completion_mask)
-
         # Decode the completions, and format them if the input is conversational
-        device = logprobs.device
+        device = model.device
         completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
 
         inputs["prompts"] = inputs.pop("prompt")
@@ -112,10 +113,27 @@ class CustomDPOTrainer(OnlineDPOTrainer):
                     for i in range(len(self.judge))
                 )
 
+
+        if not self.args.full_gradient_accumulation:
+            logprobs = self._forward(model, prompt_ids, prompt_mask, completion_ids, completion_mask)
+            logprobs = (logprobs*completion_mask.bool()).sum(1)
+        else:
+            print('Memory allocated :', torch.cuda.memory_allocated()/1e9, "GB")
+            with torch.no_grad():
+                logprobs = self._forward(model, prompt_ids, prompt_mask, completion_ids, completion_mask)
+                logprobs = (logprobs*completion_mask.bool()).sum(1)
+            logprobs.requires_grad_()
+            # logprobs = logprobs.detach().clone().requires_grad_() # make logprobs a leaf of the computation graph
+
+        with torch.no_grad():
+            if self.ref_model is not None:
+                ref_logprobs = self._forward(self.ref_model, prompt_ids, prompt_mask, completion_ids, completion_mask)
+            else:  # peft case: we just need to disable the adapter
+                with self.model.disable_adapter():
+                    ref_logprobs = self._forward(self.model, prompt_ids, prompt_mask, completion_ids, completion_mask)
         ref_logprobs = (ref_logprobs*completion_mask.bool()).sum(1)
-        logprobs = (logprobs*completion_mask.bool()).sum(1)
-        dpo_weights = torch.exp(self.beta * (logprobs - ref_logprobs))
         
+        dpo_weights = torch.exp(self.beta * (logprobs - ref_logprobs))
         dpo_weights = dpo_weights.view(self.args.num_generations, batch_size).t()
         rewards_view = rewards.view(self.args.num_generations, batch_size).t()
 
@@ -194,13 +212,18 @@ class CustomDPOTrainer(OnlineDPOTrainer):
 
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
+        
+        assert not self.use_apex, "Apex is not supported in CustomDPOTrainer"
 
-        if self.use_apex:
-            assert False, "Apex is not supported in CustomDPOTrainer"
-            # with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-            #     scaled_loss.backward()
-        else:
+        if not self.args.full_gradient_accumulation:
             self.accelerator.backward(loss, **kwargs)
+        else:
+            loss.backward() # this goes to logprobs
+            for i in range(len(logprobs)): # to debug
+                logprob_i = self._forward(model, prompt_ids[[i]], prompt_mask[[i]], completion_ids[[i]], completion_mask[[i]])
+                logprob_i = (logprob_i*completion_mask[i].bool()).sum()
+                loss_i = logprob_i * logprobs.grad[i]
+                self.accelerator.backward(loss_i, **kwargs)
 
         return loss.detach() / self.args.gradient_accumulation_steps
 
