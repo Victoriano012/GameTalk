@@ -1,5 +1,6 @@
 import inspect
 import pickle
+import torch
 
 def autoassign(init):
     def wrapper(self, *args, **kwargs):
@@ -41,3 +42,14 @@ def simple_cache(func):
         return last_call[1]
 
     return wrapper
+
+def unsqueezed_item(x, idx):
+    if isinstance(x, list): return [x[idx]]
+    elif isinstance(x, torch.Tensor): return x[idx].unsqueeze(0)
+    else:
+        raise ValueError(f"Unsupported type {type(x)} for unsqueeze operation.") 
+
+def split_dict(d):
+    x = next(iter(d))
+    for i in range(len(d[x])):
+        yield {k: unsqueezed_item(v, i) for k, v in d.items()}

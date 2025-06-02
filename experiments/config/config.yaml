@@ -11,8 +11,10 @@ train:
   ####### Trainer Config #######
   learning_rate: 1e-4
   num_train_epochs: 500
-  auto_find_batch_size : True
   gradient_accumulation_steps : 1
+  auto_find_batch_size : False
+  per_device_train_batch_size: 8
+  full_gradient_accumulation : True # Custom thing, to accumulate each generation separately
 
   eval_strategy: "steps"
   eval_steps: 20
