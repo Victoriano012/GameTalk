@@ -183,7 +183,7 @@ class BertrandCompetition():
     def game_metrics(games, player_id):
         normalized_earnings = [g.score(player_id)/g._max_earnings() for g in games]
 
-        return {"normalized_earnings" : sum(normalized_earnings) / len(games)}
+        return {"normalized_earnings (*32)" : sum(normalized_earnings)}
         
     def is_finished(self):
         return self.is_error()
@@ -290,9 +290,9 @@ class SizePrizeGame():
                 f = lambda a : -a*(u1**(a-1)) + (1-a)*(u2**(-a))
                 bp = bisect(f, 0, 1)
             bargaining_power.append(bp)
-        metrics["bargaining_power"] = sum(bargaining_power) / len(games)
+        metrics["bargaining_power (*32)"] = sum(bargaining_power)
 
-        metrics["no-deal (%)"] = sum(1 for g in games if SizePrizeGame.ACCEPT in (g.player_1.move, g.player_2.move)) / len(games)
+        metrics["deal (%) (*32)"] = sum(1 for g in games if SizePrizeGame.ACCEPT in (g.player_1.move, g.player_2.move))
         return metrics
         
     def is_finished(self):
