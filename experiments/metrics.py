@@ -220,7 +220,8 @@ def finish_conversation_from_completion(
 
 def game_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
-        train_llm, opponent_llm, conversation_file, config # general
+        train_llm, opponent_llm, conversation_file, config, # general
+        completion_ids=None
     ):
     print("\nComputing game rewards", flush=True)
     train_llm_num = train_llm_num[0]
@@ -262,7 +263,8 @@ def compute_end_strategy(conversations, llm_num, llm, full_conversation_given=Tr
     
 def leverageOpportunity_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
-        train_llm, opponent_llm, conversation_file, config # general
+        train_llm, opponent_llm, conversation_file, config, # general
+        completion_ids=None
     ):
     if len(conversation) == 0 or type(conversation[0].game) == SizePrizeGame: return [0.0] * len(conversation)
     train_llm_num = train_llm_num[0]
@@ -313,7 +315,8 @@ def leverageOpportunity_reward(
 
 def naturalness_reward(
         prompts, completions, conversation, train_llm_num, # from current batch
-        judge, naturalness_prompt, conversation_file, threshold, config # general
+        judge, naturalness_prompt, conversation_file, threshold, config, # general
+        completion_ids=None
     ):
     examples = ["Naturalness score: Yes\n", "Naturalness score: No\n"]
     yes_no_ids = judge.tokenizer(examples, return_tensors="pt")["input_ids"][:, -2] # [7566, 2360]

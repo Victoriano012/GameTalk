@@ -245,7 +245,7 @@ class SizePrizeGame():
             return None, None
 
         move = move.strip().lower()
-        if move[:len(SizePrizeGame.ACCEPT)] == SizePrizeGame.ACCEPT:
+        if move.startswith(SizePrizeGame.ACCEPT):
             curr_player.move = SizePrizeGame.ACCEPT
         else:
             proposal = self._read_proposal(move)

@@ -37,7 +37,11 @@ class CustomGRPOTrainer(GRPOTrainer):
             per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep)
 
         # Compute the KL divergence between the model and the reference model
-        ref_per_token_logps = inputs["ref_per_token_logps"]
+        if "ref_per_token_logps" in inputs:
+            ref_per_token_logps = inputs["ref_per_token_logps"]
+        else:
+            with self.accelerator.unwrap_model(self.model).disable_adapter():
+                ref_per_token_logps = self._get_per_token_logps(self.model, input_ids, attention_mask, logits_to_keep)
         per_token_kl = torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
 
         # x - x.detach() allows for preserving gradients from x
@@ -51,14 +55,14 @@ class CustomGRPOTrainer(GRPOTrainer):
 
         # Log the metrics
         completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
-        self._metrics["completion_length"].append(completion_length)
+        self._metrics["train"]["completion_length"].append(completion_length)
 
         mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-        self._metrics["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
+        self._metrics["train"]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
 
         if self.args.entropy_beta > 0:
             mean_entropy = ((entropy * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-            self._metrics["entropy"].append(self.accelerator.gather_for_metrics(mean_entropy).mean().item())
+            self._metrics["train"]["entropy"].append(self.accelerator.gather_for_metrics(mean_entropy).mean().item())
 
         return loss
 

@@ -12,8 +12,8 @@ dataset:
   num_root_generations : 1
   samples_per_epoch : 2 # ~ dataset_size
   
-logs:
-  folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/tests/"
+# logs:
+#   folder: "/home/vc111/main/LLMGameTheory/experiments/logs/RPS/tests/"
 
 wandb:
   tags :

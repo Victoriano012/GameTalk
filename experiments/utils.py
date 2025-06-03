@@ -46,6 +46,7 @@ def simple_cache(func):
 def unsqueezed_item(x, idx):
     if isinstance(x, list): return [x[idx]]
     elif isinstance(x, torch.Tensor): return x[idx].unsqueeze(0)
+    elif x is None: return None
     else:
         raise ValueError(f"Unsupported type {type(x)} for unsqueeze operation.") 
 
