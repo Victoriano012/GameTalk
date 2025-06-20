@@ -287,8 +287,13 @@ class SizePrizeGame():
             u2 = g.score(player_id, other=True)
             bp = 0.5 if u1 <= 0 and u2 <= 0 else 0. if u1 <= 0 else 1. if u2 <= 0 else "normal situation"
             if bp == "normal situation":
+                ######
+                # the experiments have been run with the following two lines of code
+                # when writing the thesis I realized that I derivated the bargaining solution formula incorrectly :(
                 f = lambda a : -a*(u1**(a-1)) + (1-a)*(u2**(-a))
                 bp = bisect(f, 0, 1)
+                ######
+                # bp = u1/(u2+u1)
             bargaining_power.append(bp)
         metrics["bargaining_power (*32)"] = sum(bargaining_power)
 

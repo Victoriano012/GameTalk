@@ -15,7 +15,7 @@ from CustomGRPOTrainer import CustomGRPOTrainer, CustomGRPOConfig
 from CustomDPOTrainer import CustomDPOTrainer, CustomDPOConfig
 from game_dataset import GameDataset, OutdateDatasetCallback, MetricsLogger
 from llm_utils import LLM
-from metrics import get_eval_metrics, game_reward, leverageOpportunity_reward, naturalness_reward
+from metrics import get_eval_metrics, game_reward, internalStateEvaluation_reward, leverageOpportunity_reward, naturalness_reward
 from utils import get_wandb_id
 
 
@@ -59,6 +59,10 @@ def __main__(config):
     ### Reward function ###
     reward_funcs = [game_reward]
     reward_weights = [1.]
+
+    if config.train.internalStateEvaluation_weight:
+        reward_funcs.append(internalStateEvaluation_reward)
+        reward_weights.append(config.train.internalStateEvaluation_weight)
 
     if config.train.leverageOpportunity_weight:
         reward_funcs.append(leverageOpportunity_reward)

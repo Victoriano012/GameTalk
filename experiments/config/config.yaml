@@ -32,6 +32,7 @@ train:
   
   beta: 0.1 # kl_coef
 
+  internalStateEvaluation_weight : 0.
   leverageOpportunity_weight : 10.
   naturalness_weight : 0.1
   naturalness_threshold : 0.7

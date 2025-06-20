@@ -46,6 +46,7 @@ def wordBasedLoss(conversations, train_llm_num):
 # other_name=None indicates that the strategy to estimate is llm's strategy
 # player_num is that of the player whose strategy is being estimated
 def estimate_strategy(llm, queries, Game, player_num, other_name=None, return_queries=False):
+    if len(queries) == 0: return [] if not return_queries else ([], [])
 
     possible_moves = Game.get_possible_moves(player_num)
     possible_tokens = llm.tokenizer([" " + name for name in list(possible_moves)], return_tensors='pt')['input_ids'][:,-1]
@@ -237,6 +238,25 @@ def game_reward(
 
     print("Rewards computed", flush=True)
     return rewards
+
+
+########### Internal State Evaluation as a reward function ###########
+
+def internalStateEvaluation_reward(
+        prompts, completions, conversation, train_llm_num, # from current batch
+        train_llm, opponent_llm, conversation_file, config, # general
+        completion_ids=None
+    ):
+    assert type(conversation[0].game) == RPS
+    train_llm_num = train_llm_num[0]
+
+    p1_estimation, _, p2_strategy = compute_strategies_and_estimation(conversation, train_llm_num, train_llm, opponent_llm)
+
+    # lastTurn = True
+    return [
+        - kl_div(conv_est[-1], conv_strategy[-1]) if len(conv_strategy) > 0 else 0.0
+        for conv_est, conv_strategy in zip(p1_estimation, p2_strategy)
+    ]
 
 
 ########### Leverage Opportunity as a reward function ###########
