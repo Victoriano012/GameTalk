@@ -2,7 +2,7 @@
 
 This repository has the code of my Bachelor's thesis *Learning to Converse Strategically: A Game-Based Approach for LLMs*.
 
-The goal of the thesis is to train LLMs to strategically converse through RL, i.e. to have a conversation having into account its final goal.
+The goal of the thesis is to train LLMs using RL to converse strategically, i.e. to have a conversation having into account a personal final goal.
 To do so, two LLMs are set to have a conversation with each other and they will be playing a game in parallel to such conversation. One of them is being trained and the other isn't.
 The rewards used for training are those provided by the game, and through the training process, the LLM learns to use the conversation to understand the counterpart's intentions and even to try to manipulate them, in order to obtain more reward.
 
