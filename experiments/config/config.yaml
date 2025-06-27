@@ -25,7 +25,7 @@ train:
   save_total_limit : 2
   load_best_model_at_end : True
   metric_for_best_model : "reward"
-  early_stopping_patience: 100
+  early_stopping_patience : 100
   
   num_generations: 8
   temperature: ${train.trained_temperature}
@@ -39,7 +39,7 @@ train:
 
   ####### GRPOTrainer Config ##########
   epsilon : 0.2 # ppo_epsilon
-  num_iterations : 1 # GRPO mu
+  num_iterations : 1
   max_completion_length : 300
   max_prompt_length : null
   entropy_beta: 0.0
